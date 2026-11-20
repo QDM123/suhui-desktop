@@ -8,7 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { runMigrations } from '../electron/db/migrate.mjs'
-import { createDao } from '../electron/db/dao.mjs'
+import { createDao, localDay } from '../electron/db/dao.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -171,6 +171,15 @@ const orphan = dao2.listAllTags().find((t) => t.name === '临时')
 ok(orphan && orphan.used === 0, '解绑后成孤儿')
 dao2.deleteTag(orphan.id)
 ok(!dao2.listAllTags().some((t) => t.name === '临时'), '孤儿标签可删除')
+
+console.log('\n[12] Phase 4：日期范围 / 最近天气')
+const rng = dao2.entriesInRange(localDay().slice(0, 8) + '01', localDay())
+ok(rng.length >= 3 && rng.every((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.day)), 'entriesInRange 返回带 day')
+ok(rng[0].day <= rng[rng.length - 1].day, '按日升序')
+ok(rng.every((x) => x.title && x.time), '条目含标题占位与时间')
+ok(dao2.latestWeather() === 1 || dao2.latestWeather() === null || Number.isInteger(dao2.latestWeather()), 'latestWeather 返回枚举/空')
+const withW = dao2.ensureDraft({ weather: 7 })
+ok(dao2.latestWeather() === 7, 'latestWeather 取最近一篇')
 
 console.log(`\n结果：${passed} 通过，${failed} 失败`)
 db.close()

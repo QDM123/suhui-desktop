@@ -33,7 +33,9 @@ const api = {
     setTags: (id, names) => ipcRenderer.invoke('diary:set-tags', id, names),
     list: (categoryId) => ipcRenderer.invoke('diary:list', categoryId),
     softDelete: (id) => ipcRenderer.invoke('diary:soft-delete', id),
-    search: (q, categoryId) => ipcRenderer.invoke('diary:search', q, categoryId)
+    search: (q, categoryId) => ipcRenderer.invoke('diary:search', q, categoryId),
+    range: (fromDay, toDay) => ipcRenderer.invoke('diary:range', fromDay, toDay),
+    latestWeather: () => ipcRenderer.invoke('diary:latest-weather')
   },
   category: {
     list: () => ipcRenderer.invoke('category:list'),

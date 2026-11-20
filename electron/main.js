@@ -180,6 +180,10 @@ ipcMain.handle('diary:soft-delete', (_e, id) => getDao().softDelete(id))
 /* ---------- 搜索（Phase 3） ---------- */
 ipcMain.handle('diary:search', (_e, q, categoryId) => getDao().searchEntries(q, categoryId))
 
+/* ---------- 日历/时光隧道（Phase 4） ---------- */
+ipcMain.handle('diary:range', (_e, fromDay, toDay) => getDao().entriesInRange(fromDay, toDay))
+ipcMain.handle('diary:latest-weather', () => getDao().latestWeather())
+
 /* ---------- 分类/标签管理（Phase 3） ---------- */
 ipcMain.handle('category:create', (_e, name, color) => getDao().createCategory(name, color))
 ipcMain.handle('category:update', (_e, id, patch) => getDao().updateCategory(id, patch))
