@@ -19,6 +19,7 @@ const api = {
     dataDir: () => ipcRenderer.invoke('app:get-data-dir'),
     openDataDir: () => ipcRenderer.invoke('app:open-data-dir'),
     recentAddresses: () => ipcRenderer.invoke('app:recent-addresses'),
+    version: () => ipcRenderer.invoke('app:get-version'),
     /* 关窗守卫（Phase 1）：主进程 close 拦截 → 通知渲染进程 flush → confirmClose */
     onBeforeClose: (cb) => {
       ipcRenderer.on('app:before-close', () => cb())

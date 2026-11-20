@@ -169,6 +169,7 @@ ipcMain.handle('app:open-data-dir', () => {
   return true
 })
 ipcMain.handle('app:recent-addresses', () => getDao().recentAddresses())
+ipcMain.handle('app:get-version', () => app.getVersion())
 
 /* ---------- 日记（Phase 1） ---------- */
 ipcMain.handle('diary:ensure-draft', (_e, init) => getDao().ensureDraft(init))
