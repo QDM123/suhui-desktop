@@ -239,6 +239,28 @@ export function createDao(db, mediaDir, opts = {}) {
     return db.prepare(sql).all(...params).map(mapEntryRow)
   }
 
+  /** 日期范围内的日记（Phase 4：日历/时光隧道聚合用，按日升序） */
+  function entriesInRange(fromDay, toDay) {
+    return db.prepare(
+      `SELECT id, day, occurred_at, title, content FROM entries
+       WHERE deleted = 0 AND day BETWEEN ? AND ?
+       ORDER BY occurred_at ASC, created_at ASC`
+    ).all(fromDay, toDay).map((r) => ({
+      id: r.id,
+      day: r.day,
+      time: r.occurred_at.slice(11, 16),
+      title: r.title || titlePreview(r)
+    }))
+  }
+
+  /** 最近一篇的天气（Phase 4「今天」卡片） */
+  function latestWeather() {
+    const r = db.prepare(
+      'SELECT weather FROM entries WHERE deleted = 0 ORDER BY occurred_at DESC, created_at DESC LIMIT 1'
+    ).get()
+    return r ? r.weather : null
+  }
+
   /** 软删 → 回收站（Phase 2，报告 §3.2） */
   function softDelete(id) {
     const now = localDateTime()
@@ -411,6 +433,7 @@ export function createDao(db, mediaDir, opts = {}) {
   return {
     getEntry, listToday, recentAddresses, listCategories, listAllTags,
     listEntries, searchEntries, softDelete,
+    entriesInRange, latestWeather,
     createCategory, updateCategory, deleteCategory,
     renameTag, mergeTags, deleteTag,
     ensureDraft, patchEntry, setTags,
