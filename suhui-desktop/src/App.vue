@@ -27,6 +27,7 @@ import ToastHost from './components/ToastHost.vue'
 const app = useAppStore()
 
 onMounted(() => {
+  app.loadSettings()
   app.loadStats()
 
   /* 关窗守卫（计划 §2.3）：主进程拦截 close → 通知这里 flush → 确认后才真正关闭 */

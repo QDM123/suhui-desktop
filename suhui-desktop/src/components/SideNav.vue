@@ -22,7 +22,7 @@
     <button
       class="nav-item collapse"
       :title="app.sidebarCollapsed ? '展开侧栏' : '折叠侧栏'"
-      @click="app.sidebarCollapsed = !app.sidebarCollapsed"
+      @click="app.toggleSidebar()"
     >
       <span>{{ app.sidebarCollapsed ? '⇥' : '⇤' }}</span>{{ app.sidebarCollapsed ? '' : '折叠' }}
     </button>
