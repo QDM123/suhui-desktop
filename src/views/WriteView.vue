@@ -2,42 +2,50 @@
   <div class="ed-wrap">
     <!-- 工具栏 -->
     <div class="ed-toolbar">
-      <button class="tool-btn" title="返回" @click="leave">‹</button>
+      <button class="tool-btn big" title="返回" @click="leave">‹</button>
       <span class="ed-title-label">{{ ed.isNew ? '写日记' : '编辑日记' }}</span>
-      <span class="sp"></span>
       <span class="save-state" :class="ed.saveState" :title="ed.saveError || ''" @click="ed.saveState === 'error' && ed.flush()">
         <template v-if="ed.saveState === 'saving'">正在保存…</template>
         <template v-else-if="ed.saveState === 'saved'">已保存 {{ savedClock }}</template>
         <template v-else-if="ed.saveState === 'error'">⚠ 保存失败，点击重试</template>
         <template v-else></template>
       </span>
-      <button class="tool-btn" title="此刻心情" @click="show.mood = true">{{ moodIcon }}</button>
-      <button class="tool-btn" title="今天天气" @click="show.weather = true">{{ weatherIcon }}</button>
-      <button class="tool-btn" title="所在位置" @click="openAddress">📍</button>
-      <button class="tool-btn" title="分类（单选）" @click="show.category = true">🏷️</button>
-      <button class="tool-btn" title="标签（多选）" @click="openTags">#</button>
-      <button class="tool-btn" title="插入图片（也可直接 Ctrl+V 粘贴）" @click="addFiles">🖼️</button>
-      <button class="btn sm" @click="done">完成</button>
+      <span class="sp"></span>
+      <button class="btn" @click="done">完成</button>
     </div>
 
-    <!-- 信笺纸 -->
-    <div class="ed-paper" :class="paperClass" @paste="onPaste">
-      <div class="ed-date">
-        <input type="date" v-model="dayInput" :max="todayStr" @change="onDayChange">
-        <input type="time" v-model="timeInput" @change="ed.setField('occurredTime', timeInput)">
-        <span class="ed-hint">🚫 未来日期不可写 · 每日新增上限 {{ DAILY_LIMIT }} 篇</span>
-        <span v-if="todayList.length" class="today-list">
-          今日已写 {{ todayList.length }} 篇：
-          <span
-            v-for="t in todayList"
-            :key="t.id"
-            class="chip mini"
-            :class="{ on: t.id === ed.entryId }"
-            @click="switchTo(t.id)"
-          >{{ t.time }} {{ t.title }}</span>
-        </span>
+    <!-- 信息栏：上行 日期时间；下行 元信息按钮（放大） -->
+    <div class="ed-info">
+      <div class="row">
+        <label class="info-field">
+          <span>📅</span>
+          <input type="date" v-model="dayInput" :max="todayStr" @change="onDayChange">
+        </label>
+        <label class="info-field">
+          <span>⏰</span>
+          <input type="time" v-model="timeInput" @change="ed.setField('occurredTime', timeInput)">
+        </label>
+        <span class="ed-hint">🚫 未来不可写 · 每日上限 {{ DAILY_LIMIT }} 篇</span>
+        <span class="grow"></span>
+        <button class="btn sm ghost" :disabled="autoBusy" title="按当前位置自动填地址与天气" @click="applyAuto(false)">
+          {{ autoBusy ? '定位中…' : '📍 自动填充' }}
+        </button>
       </div>
+      <div class="row">
+        <button class="info-btn" @click="show.weather = true">{{ weatherIcon }} {{ weatherName }}</button>
+        <button class="info-btn" @click="show.mood = true">{{ moodIcon }} 心情</button>
+        <button class="info-btn" @click="show.category = true">
+          <i class="cat-dot" :style="{ background: catColor }"></i>{{ catName }}
+        </button>
+        <button class="info-btn" @click="openTags"># {{ ed.tags.length ? ed.tags.join(' ') : '标签' }}</button>
+        <button class="info-btn addr" :title="ed.fields.address" @click="openAddress">📍 {{ ed.fields.address || '所在位置' }}</button>
+        <span class="grow"></span>
+        <button class="info-btn" title="添加图片（可多选）" @click="addFiles">🖼️ 图片</button>
+      </div>
+    </div>
 
+    <!-- 信笺纸：标题 + 正文 -->
+    <div class="ed-paper" :class="paperClass" @paste="onPaste">
       <input class="ed-title" placeholder="标题（可留空）" :value="ed.fields.title"
              @input="ed.setField('title', $event.target.value)">
 
@@ -45,20 +53,33 @@
                 :value="ed.fields.content"
                 @input="ed.setField('content', $event.target.value)"></textarea>
 
-      <!-- 照片网格（原图展示） -->
-      <div v-if="ed.media.length" class="ed-photos">
-        <div v-for="m in ed.media" :key="m.id" class="ed-photo" :title="m.orig_name">
-          <img :src="`media://${m.file_name}`" alt="">
-          <button class="ed-photo-del" title="移除照片" @click="removePhoto(m)">✕</button>
-        </div>
-      </div>
-
       <!-- 信笺选择 -->
       <div class="paper-pick">
         <div v-for="p in PAPERS" :key="p" class="paper-thumb" :class="[p, { on: ed.fields.background === p }]"
              @click="ed.setField('background', p)"></div>
       </div>
     </div>
+
+    <!-- 图片墙：信纸下方独立一行，横向排开 -->
+    <div class="ed-photos-bar">
+      <div v-for="(m, i) in ed.media" :key="m.id" class="ed-photo" :title="m.orig_name"
+           @click="lbIndex = i; lbShow = true">
+        <img :src="`media://${m.file_name}`" alt="">
+        <button class="ed-photo-del" title="移除照片" @click.stop="removePhoto(m)">✕</button>
+      </div>
+      <div class="ed-photo add" title="添加图片（可多选，原图保存）" @click="addFiles">
+        <span>＋</span><i>添加图片</i>
+      </div>
+    </div>
+
+    <!-- 编辑器内图片预览（缩放/旋转） -->
+    <Lightbox
+      :visible="lbShow"
+      :media="ed.media"
+      :index="lbIndex"
+      @close="lbShow = false"
+      @move="lbMove"
+    />
 
     <!-- 天气 -->
     <Modal :visible="show.weather" title="今天天气" @close="show.weather = false">
@@ -89,7 +110,7 @@
     </Modal>
 
     <!-- 标签（多选 + 新建） -->
-    <Modal :visible="show.tags" title="选择标签（多选）" @close="show.tags = false">
+    <Modal :visible="show.tags" title="选择标签（多选）" :buttons="[]" @close="show.tags = false">
       <div class="chip-row" style="justify-content:center">
         <span v-for="t in allTags" :key="t.id" class="chip" :class="{ on: draftTags.includes(t.name) }"
               @click="toggleDraftTag(t.name)">#{{ t.name }}</span>
@@ -102,7 +123,7 @@
     </Modal>
 
     <!-- 地址 -->
-    <Modal :visible="show.address" title="所在位置" @close="show.address = false">
+    <Modal :visible="show.address" title="所在位置" :buttons="[]" @close="show.address = false">
       <input class="addr-input" v-model="draftAddress" placeholder="自由输入地点" @keydown.enter="applyAddress">
       <template v-if="recentAddresses.length">
         <div class="addr-recent">最近使用：</div>
@@ -117,14 +138,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useEditorStore } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
 import { useAppStore } from '../stores/app'
 import { useTimelineStore } from '../stores/timeline'
 import { WEATHERS, MOODS, PAPERS, weatherOf, moodOf, fmtDay, fmtClock, DAILY_LIMIT } from '../constants'
+import { getAutoInfo } from '../autofill'
 import Modal from '../components/Modal.vue'
+import Lightbox from '../components/Lightbox.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -137,18 +160,33 @@ const show = reactive({ weather: false, mood: false, category: false, tags: fals
 const categories = ref([])
 const allTags = ref([])
 const recentAddresses = ref([])
-const todayList = ref([])
 const draftTags = ref([])
 const draftAddress = ref('')
 const newTag = ref('')
 const dayInput = ref(fmtDay())
 const timeInput = ref('00:00')
 
+const autoBusy = ref(false)
+/* 自动填充只覆盖“仍是打开时默认值”的字段，用户手填不覆盖 */
+const defaultsAtOpen = ref({ address: '', weather: 1 })
+
+const lbShow = ref(false)
+const lbIndex = ref(0)
+
 const todayStr = fmtDay()
 const weatherIcon = computed(() => weatherOf(ed.fields.weather).icon)
-const moodIcon = computed(() => ed.fields.mood == null ? '😶' : moodOf(ed.fields.mood))
+const weatherName = computed(() => weatherOf(ed.fields.weather).name)
+const moodIcon = computed(() => (ed.fields.mood == null ? '😶' : moodOf(ed.fields.mood)))
 const paperClass = computed(() => (app.night ? 'paper-5' : ed.fields.background))
 const savedClock = computed(() => (ed.savedAt ? fmtClock(ed.savedAt) : ''))
+const catName = computed(() => {
+  const c = categories.value.find((x) => x.id === ed.fields.category_id)
+  return c?.name || '分类'
+})
+const catColor = computed(() => {
+  const c = categories.value.find((x) => x.id === ed.fields.category_id)
+  return c?.color || 'var(--line)'
+})
 
 onMounted(async () => {
   if (route.query.id) {
@@ -161,15 +199,40 @@ onMounted(async () => {
   dayInput.value = ed.fields.occurredDay
   timeInput.value = ed.fields.occurredTime
   draftTags.value = [...ed.tags]
-  await loadAll()
+  defaultsAtOpen.value = { address: ed.fields.address, weather: ed.fields.weather }
+  categories.value = await window.api.category.list()
+  if (ed.isNew) applyAuto(true) // 新日记静默自动填充，失败不打扰
 })
 
-async function loadAll() {
-  categories.value = await window.api.category.list()
-  todayList.value = await window.api.diary.today()
+async function applyAuto(silent) {
+  if (autoBusy.value) return
+  autoBusy.value = true
+  try {
+    const info = await getAutoInfo()
+    if (info.failed) {
+      if (!silent) ui.showToast(info.reason || '定位失败，请手动填写')
+      return
+    }
+    if (info.address && ed.fields.address === defaultsAtOpen.value.address) {
+      ed.setField('address', info.address)
+    }
+    if (info.weatherId && ed.fields.weather === defaultsAtOpen.value.weather) {
+      ed.setField('weather', info.weatherId)
+    }
+    const tip = info.precision === 'city'
+      ? '已按 IP 城市自动填充（城市级精度；开启 Windows 定位可获得精确位置）'
+      : '已按当前位置自动填充'
+    ui.showToast(tip)
+  } finally {
+    autoBusy.value = false
+  }
 }
 
-watch(() => ed.entryId, () => { loadAll() })
+function lbMove(d) {
+  const n = ed.media.length
+  if (!n) return
+  lbIndex.value = (lbIndex.value + d + n) % n
+}
 
 function onDayChange() {
   if (dayInput.value > todayStr) {
@@ -248,20 +311,6 @@ async function onPaste(e) {
   }
 }
 
-async function switchTo(id) {
-  if (ed.dirty) {
-    const ok = await ed.flush()
-    if (!ok) { ui.showToast('有修改保存失败，不能切换'); return }
-  }
-  const data = await window.api.diary.get(id)
-  if (data) {
-    ed.open(data)
-    dayInput.value = ed.fields.occurredDay
-    timeInput.value = ed.fields.occurredTime
-    draftTags.value = [...ed.tags]
-  }
-}
-
 async function leave() {
   router.push('/timeline') // 守卫在 router 层统一 flush（src/main.js）
 }
@@ -281,23 +330,58 @@ async function done() {
 </script>
 
 <style>
-.ed-title-label{font-size:13.5px;font-weight:700;margin-left:2px;}
+.ed-title-label{font-size:14px;font-weight:700;margin-left:2px;}
+.tool-btn.big{font-size:20px;padding:6px 12px;}
 .save-state{font-size:11.5px;color:var(--text-secondary);cursor:default;min-width:110px;text-align:right;}
-.save-state.saving{color:var(--text-secondary);}
 .save-state.saved{color:var(--accent);}
 .save-state.error{color:var(--danger);font-weight:700;cursor:pointer;}
-.ed-hint{font-size:11px;opacity:.75;}
-.today-list{font-size:11px;color:var(--text-secondary);display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
-.chip.mini{padding:2px 8px;font-size:11px;border-radius:999px;cursor:pointer;}
-.chip.mini.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);}
-.ed-photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:14px;}
-.ed-photo{position:relative;aspect-ratio:4/3;border-radius:8px;overflow:hidden;background:var(--line);}
-.ed-photo img{width:100%;height:100%;object-fit:cover;display:block;}
+
+/* ---------- 信息栏 ---------- */
+.ed-info{flex:none;background:var(--card);border-bottom:1px solid var(--line);padding:8px 14px;display:flex;flex-direction:column;gap:8px;}
+.ed-info .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.ed-info .grow{flex:1;}
+.ed-hint{font-size:11px;opacity:.7;color:var(--text-secondary);}
+.info-field{
+  display:inline-flex;align-items:center;gap:7px;background:var(--bg);
+  border:1px solid var(--line);border-radius:9px;padding:6px 12px;font-size:13px;color:var(--text-secondary);
+}
+.info-field input{border:0;background:none;outline:none;font-size:13.5px;color:var(--text-main);}
+.info-btn{
+  display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);
+  border-radius:9px;padding:8px 14px;font-size:13.5px;cursor:pointer;color:var(--text-main);transition:.12s;
+  max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.info-btn:hover{border-color:var(--accent);color:var(--accent);}
+
+/* ---------- 图片墙（信纸下方独立一行） ---------- */
+.ed-photos-bar{
+  flex:none;display:flex;gap:10px;align-items:stretch;
+  padding:12px 46px 16px;overflow-x:auto;background:var(--bg);
+  border-top:1px solid var(--line);
+}
+.ed-photos-bar::-webkit-scrollbar{height:6px;}
+.ed-photos-bar::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px;}
+.ed-photo{
+  position:relative;width:118px;aspect-ratio:4/3;flex:none;
+  border-radius:8px;overflow:hidden;background:var(--line);cursor:zoom-in;
+}
+.ed-photo img{width:100%;height:100%;object-fit:cover;display:block;transition:.15s;}
+.ed-photo:hover img{transform:scale(1.04);}
+.ed-photo.add{
+  border:1.5px dashed var(--line);background:transparent;color:var(--text-secondary);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  cursor:pointer;user-select:none;transition:.15s;overflow:hidden;
+}
+.ed-photo.add span{font-size:26px;line-height:1;font-weight:300;}
+.ed-photo.add i{font-style:normal;font-size:11px;letter-spacing:1px;}
+.ed-photo.add:hover{border-color:var(--accent);color:var(--accent);}
 .ed-photo-del{
   position:absolute;top:4px;right:4px;width:20px;height:20px;border:0;border-radius:50%;
   background:rgba(20,25,35,.55);color:#fff;font-size:11px;cursor:pointer;line-height:20px;padding:0;
 }
 .ed-photo-del:hover{background:var(--danger);}
+
+/* ---------- 弹窗 ---------- */
 .mood-row{font-size:28px;letter-spacing:10px;text-align:center;}
 .mood-item{cursor:pointer;opacity:.35;transition:.15s;display:inline-block;}
 .mood-item.on{opacity:1;transform:scale(1.12);}
