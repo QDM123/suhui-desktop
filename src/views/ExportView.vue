@@ -1,5 +1,5 @@
 <template>
-  <div class="view" style="max-width:720px;">
+  <div class="view" style="max-width:720px;margin:0 auto;width:100%;">
     <div class="view-head">
       <h1>导出日记</h1>
       <span class="sub">PDF / Word / 长图，本地生成、不限次数</span>

@@ -1,5 +1,5 @@
 <template>
-  <div class="view" style="max-width:640px;">
+  <div class="view" style="max-width:640px;margin:0 auto;width:100%;">
     <div class="view-head">
       <button class="tool-btn" title="返回" @click="router.push('/timeline')">‹</button>
       <h1>标签管理</h1>

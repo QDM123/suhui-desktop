@@ -79,6 +79,7 @@
           </div>
           <div class="meta" style="margin-top:24px;font-size:11.5px;">
             <span>分类：{{ catName }}</span>
+            <span v-if="tl.reader.media.length">🖼️ {{ tl.reader.media.length }} 张</span>
             <span
               v-for="t in tl.reader.tags"
               :key="t.id"

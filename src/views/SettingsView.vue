@@ -1,5 +1,5 @@
 <template>
-  <div class="view" style="max-width:640px;">
+  <div class="view" style="max-width:640px;margin:0 auto;width:100%;">
     <div class="view-head"><h1>设置</h1></div>
 
     <!-- 主题外观 -->
