@@ -253,12 +253,85 @@ export function createDao(db, mediaDir, opts = {}) {
     }))
   }
 
-  /** 最近一篇的天气（Phase 4「今天」卡片） */
+  /** 最近一篇的天气（Phase 4「今天」卡片，取最近创建的一篇） */
   function latestWeather() {
     const r = db.prepare(
-      'SELECT weather FROM entries WHERE deleted = 0 ORDER BY occurred_at DESC, created_at DESC LIMIT 1'
+      'SELECT weather FROM entries WHERE deleted = 0 ORDER BY created_at DESC, rowid DESC LIMIT 1'
     ).get()
     return r ? r.weather : null
+  }
+
+  /* ---------- 相册 / 回收站（Phase 5） ---------- */
+
+  /** 相册：全部未删除日记的媒体，按日记时间倒序 */
+  function listAllMedia() {
+    return db.prepare(
+      `SELECT m.id, m.entry_id, m.file_name, m.orig_name, e.day, e.title, e.content
+       FROM media m JOIN entries e ON e.id = m.entry_id
+       WHERE e.deleted = 0
+       ORDER BY e.occurred_at DESC, e.created_at DESC, m.sort ASC`
+    ).all().map((r) => ({
+      id: r.id,
+      entry_id: r.entry_id,
+      file_name: r.file_name,
+      orig_name: r.orig_name,
+      day: r.day,
+      title: r.title || titlePreview(r)
+    }))
+  }
+
+  /** 回收站列表 */
+  function listDeleted() {
+    return db.prepare(
+      `SELECT id, title, content, day, occurred_at, deleted_at
+       FROM entries WHERE deleted = 1
+       ORDER BY deleted_at DESC`
+    ).all().map((r) => ({
+      id: r.id,
+      title: r.title || titlePreview(r),
+      day: r.day,
+      time: r.occurred_at.slice(11, 16),
+      contentLen: (r.content || '').length,
+      deleted_at: r.deleted_at
+    }))
+  }
+
+  /** 从回收站恢复 */
+  function restore(id) {
+    const r = db.prepare(
+      'UPDATE entries SET deleted = 0, deleted_at = NULL WHERE id = ? AND deleted = 1'
+    ).run(id)
+    return { ok: r.changes > 0 }
+  }
+
+  /** 彻底删除：记录 + 媒体记录 + 媒体文件 */
+  function purge(id) {
+    const mediaRows = db.prepare('SELECT * FROM media WHERE entry_id = ?').all(id)
+    for (const m of mediaRows) {
+      const f = path.join(mediaDir, m.file_name)
+      if (fs.existsSync(f)) {
+        try { fs.unlinkSync(f) } catch (e) { return { ok: false, error: String(e) } }
+      }
+    }
+    db.transaction(() => {
+      db.prepare('DELETE FROM media WHERE entry_id = ?').run(id)
+      db.prepare('DELETE FROM entry_tags WHERE entry_id = ?').run(id)
+      db.prepare('DELETE FROM entries WHERE id = ?').run(id)
+    })()
+    return { ok: true }
+  }
+
+  /** 30 天保留期清理（启动时调用；retention/now 可注入便于测试） */
+  function cleanupExpired(retentionDays = 30, now = new Date()) {
+    const cutoff = localDateTime(new Date(now.getTime() - retentionDays * 86400000))
+    const expired = db.prepare(
+      'SELECT id FROM entries WHERE deleted = 1 AND deleted_at IS NOT NULL AND deleted_at < ?'
+    ).all(cutoff)
+    let purged = 0
+    for (const row of expired) {
+      if (purge(row.id).ok) purged++
+    }
+    return { purged }
   }
 
   /** 软删 → 回收站（Phase 2，报告 §3.2） */
@@ -434,6 +507,7 @@ export function createDao(db, mediaDir, opts = {}) {
     getEntry, listToday, recentAddresses, listCategories, listAllTags,
     listEntries, searchEntries, softDelete,
     entriesInRange, latestWeather,
+    listAllMedia, listDeleted, restore, purge, cleanupExpired,
     createCategory, updateCategory, deleteCategory,
     renameTag, mergeTags, deleteTag,
     ensureDraft, patchEntry, setTags,

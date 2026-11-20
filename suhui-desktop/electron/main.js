@@ -78,6 +78,10 @@ app.whenReady().then(() => {
     )
   }
 
+  /* 回收站 30 天保留期：启动时清理（Phase 5，计划 §6-3） */
+  const { purged } = getDao().cleanupExpired()
+  if (purged > 0) console.log(`[回收站] 已自动清理超过 30 天的日记 ${purged} 篇`)
+
   /* media:// 协议实现：只允许访问 media/ 目录下的安全文件名 */
   const MIME = {
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -183,6 +187,12 @@ ipcMain.handle('diary:search', (_e, q, categoryId) => getDao().searchEntries(q, 
 /* ---------- 日历/时光隧道（Phase 4） ---------- */
 ipcMain.handle('diary:range', (_e, fromDay, toDay) => getDao().entriesInRange(fromDay, toDay))
 ipcMain.handle('diary:latest-weather', () => getDao().latestWeather())
+
+/* ---------- 相册 / 回收站（Phase 5） ---------- */
+ipcMain.handle('media:list-all', () => getDao().listAllMedia())
+ipcMain.handle('bin:list', () => getDao().listDeleted())
+ipcMain.handle('bin:restore', (_e, id) => getDao().restore(id))
+ipcMain.handle('bin:purge', (_e, id) => getDao().purge(id))
 
 /* ---------- 分类/标签管理（Phase 3） ---------- */
 ipcMain.handle('category:create', (_e, name, color) => getDao().createCategory(name, color))
