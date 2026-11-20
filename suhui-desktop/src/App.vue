@@ -6,7 +6,6 @@
       <div class="content">
         <router-view />
       </div>
-      <InspectorPanel />
     </div>
     <StatusBar />
   </div>
@@ -21,7 +20,6 @@ import { useEditorStore } from './stores/editor'
 import { useUiStore } from './stores/ui'
 import TitleBar from './components/TitleBar.vue'
 import SideNav from './components/SideNav.vue'
-import InspectorPanel from './components/InspectorPanel.vue'
 import StatusBar from './components/StatusBar.vue'
 import ToastHost from './components/ToastHost.vue'
 
