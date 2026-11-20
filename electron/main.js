@@ -193,6 +193,17 @@ ipcMain.handle('app:open-data-dir', () => {
 ipcMain.handle('app:recent-addresses', () => getDao().recentAddresses())
 ipcMain.handle('app:get-version', () => app.getVersion())
 
+/* 随系统启动（Phase 9 追加）：登录项写入注册表，仅打包版生效 */
+ipcMain.handle('app:get-autostart', () => ({
+  enabled: app.getLoginItemSettings().openAtLogin,
+  packaged: app.isPackaged
+}))
+ipcMain.handle('app:set-autostart', (_e, on) => {
+  if (!app.isPackaged) return { ok: false, packaged: false }
+  app.setLoginItemSettings({ openAtLogin: !!on })
+  return { ok: true, enabled: app.getLoginItemSettings().openAtLogin }
+})
+
 /* ---------- 日记（Phase 1） ---------- */
 ipcMain.handle('diary:ensure-draft', (_e, init) => getDao().ensureDraft(init))
 ipcMain.handle('diary:patch', (_e, id, patch) => getDao().patchEntry(id, patch))
