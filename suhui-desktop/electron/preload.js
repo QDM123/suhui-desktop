@@ -32,13 +32,20 @@ const api = {
     today: () => ipcRenderer.invoke('diary:today'),
     setTags: (id, names) => ipcRenderer.invoke('diary:set-tags', id, names),
     list: (categoryId) => ipcRenderer.invoke('diary:list', categoryId),
-    softDelete: (id) => ipcRenderer.invoke('diary:soft-delete', id)
+    softDelete: (id) => ipcRenderer.invoke('diary:soft-delete', id),
+    search: (q, categoryId) => ipcRenderer.invoke('diary:search', q, categoryId)
   },
   category: {
-    list: () => ipcRenderer.invoke('category:list')
+    list: () => ipcRenderer.invoke('category:list'),
+    create: (name, color) => ipcRenderer.invoke('category:create', name, color),
+    update: (id, patch) => ipcRenderer.invoke('category:update', id, patch),
+    remove: (id) => ipcRenderer.invoke('category:delete', id)
   },
   tag: {
-    listAll: () => ipcRenderer.invoke('tag:list-all')
+    listAll: () => ipcRenderer.invoke('tag:list-all'),
+    rename: (id, name) => ipcRenderer.invoke('tag:rename', id, name),
+    merge: (fromId, toId) => ipcRenderer.invoke('tag:merge', fromId, toId),
+    remove: (id) => ipcRenderer.invoke('tag:delete', id)
   },
   media: {
     pickAndAdd: (entryId) => ipcRenderer.invoke('media:pick-and-add', entryId),

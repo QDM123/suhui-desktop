@@ -7,6 +7,8 @@ import AlbumView from './views/AlbumView.vue'
 import BinView from './views/BinView.vue'
 import ExportView from './views/ExportView.vue'
 import SettingsView from './views/SettingsView.vue'
+import CategoryManageView from './views/CategoryManageView.vue'
+import TagManageView from './views/TagManageView.vue'
 
 export const NAV_ITEMS = [
   { path: '/write',     label: '写日记',   icon: '✏️', comp: WriteView },
@@ -30,7 +32,10 @@ const router = createRouter({
       path: i.path,
       name: i.path.slice(1),
       component: i.comp
-    }))
+    })),
+    /* 管理页（不在侧栏，从设置/时间轴进入） */
+    { path: '/categories', name: 'categories', component: CategoryManageView },
+    { path: '/tags', name: 'tags', component: TagManageView }
   ]
 })
 

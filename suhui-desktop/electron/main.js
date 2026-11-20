@@ -177,6 +177,17 @@ ipcMain.handle('diary:set-tags', (_e, id, names) => getDao().setTags(id, names))
 ipcMain.handle('diary:list', (_e, categoryId) => getDao().listEntries(categoryId))
 ipcMain.handle('diary:soft-delete', (_e, id) => getDao().softDelete(id))
 
+/* ---------- 搜索（Phase 3） ---------- */
+ipcMain.handle('diary:search', (_e, q, categoryId) => getDao().searchEntries(q, categoryId))
+
+/* ---------- 分类/标签管理（Phase 3） ---------- */
+ipcMain.handle('category:create', (_e, name, color) => getDao().createCategory(name, color))
+ipcMain.handle('category:update', (_e, id, patch) => getDao().updateCategory(id, patch))
+ipcMain.handle('category:delete', (_e, id) => getDao().deleteCategory(id))
+ipcMain.handle('tag:rename', (_e, id, name) => getDao().renameTag(id, name))
+ipcMain.handle('tag:merge', (_e, fromId, toId) => getDao().mergeTags(fromId, toId))
+ipcMain.handle('tag:delete', (_e, id) => getDao().deleteTag(id))
+
 /* ---------- 分类 / 标签 ---------- */
 ipcMain.handle('category:list', () => getDao().listCategories())
 ipcMain.handle('tag:list-all', () => getDao().listAllTags())

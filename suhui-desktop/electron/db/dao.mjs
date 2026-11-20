@@ -84,29 +84,159 @@ export function createDao(db, mediaDir, opts = {}) {
   }
 
   function listCategories() {
-    return db.prepare('SELECT * FROM categories ORDER BY sort, id').all()
+    return db.prepare(
+      `SELECT c.*,
+              (SELECT COUNT(*) FROM entries e WHERE e.category_id = c.id AND e.deleted = 0) AS entry_count
+       FROM categories c ORDER BY c.sort, c.id`
+    ).all()
+  }
+
+  /* ---------- 分类管理（Phase 3） ---------- */
+
+  const COLOR_RE = /^#[0-9a-fA-F]{6}$/
+  const DEFAULT_CATEGORY_ID = 1
+
+  function createCategory(name, color) {
+    name = String(name || '').trim()
+    if (!name) throw new Error('分类名不能为空')
+    if (!COLOR_RE.test(color || '')) throw new Error('颜色格式不正确')
+    const maxSort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS s FROM categories').get().s
+    const r = db.prepare('INSERT INTO categories (name, color, sort) VALUES (?, ?, ?)')
+      .run(name, color, maxSort + 1)
+    return db.prepare('SELECT * FROM categories WHERE id = ?').get(r.lastInsertRowid)
+  }
+
+  function updateCategory(id, { name, color }) {
+    const cur = db.prepare('SELECT * FROM categories WHERE id = ?').get(id)
+    if (!cur) throw new Error('分类不存在')
+    const newName = name != null ? String(name).trim() : cur.name
+    if (!newName) throw new Error('分类名不能为空')
+    const newColor = color != null && COLOR_RE.test(color) ? color : cur.color
+    db.prepare('UPDATE categories SET name = ?, color = ? WHERE id = ?').run(newName, newColor, id)
+    return { ok: true }
+  }
+
+  /** 删除分类：非空时其日记移入默认分类（id=1，不可删除） */
+  const deleteCategory = db.transaction((id) => {
+    if (id === DEFAULT_CATEGORY_ID) {
+      const err = new Error('默认分类不可删除')
+      err.code = 'DEFAULT_CAT'
+      throw err
+    }
+    const cnt = db.prepare(
+      'SELECT COUNT(*) AS c FROM entries WHERE category_id = ? AND deleted = 0'
+    ).get(id).c
+    if (cnt > 0) {
+      db.prepare('UPDATE entries SET category_id = ? WHERE category_id = ?')
+        .run(DEFAULT_CATEGORY_ID, id)
+    }
+    db.prepare('DELETE FROM categories WHERE id = ?').run(id)
+    return { ok: true, moved: cnt }
+  })
+
+  /* ---------- 标签管理（Phase 3） ---------- */
+
+  function renameTag(id, name) {
+    name = String(name || '').trim().replace(/^#/, '')
+    if (!name) throw new Error('标签名不能为空')
+    try {
+      db.prepare('UPDATE tags SET name = ? WHERE id = ?').run(name, id)
+      return { ok: true }
+    } catch (e) {
+      if (String(e.message).includes('UNIQUE')) throw new Error('已存在同名标签')
+      throw e
+    }
+  }
+
+  /** 把 from 标签全部并入 to（from 删除，链接去重） */
+  const mergeTags = db.transaction((fromId, toId) => {
+    if (fromId === toId) throw new Error('不能合并到自身')
+    const from = db.prepare('SELECT * FROM tags WHERE id = ?').get(fromId)
+    const to = db.prepare('SELECT * FROM tags WHERE id = ?').get(toId)
+    if (!from || !to) throw new Error('标签不存在')
+    db.prepare('INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) SELECT entry_id, ? FROM entry_tags WHERE tag_id = ?')
+      .run(toId, fromId)
+    db.prepare('DELETE FROM entry_tags WHERE tag_id = ?').run(fromId)
+    db.prepare('DELETE FROM tags WHERE id = ?').run(fromId)
+    return { ok: true }
+  })
+
+  /** 删除孤儿标签（0 引用） */
+  function deleteTag(id) {
+    const used = db.prepare('SELECT COUNT(*) AS c FROM entry_tags WHERE tag_id = ?').get(id).c
+    if (used > 0) {
+      const err = new Error('该标签仍被 ' + used + ' 篇日记使用')
+      err.code = 'TAG_IN_USE'
+      throw err
+    }
+    db.prepare('DELETE FROM tags WHERE id = ?').run(id)
+    return { ok: true }
   }
 
   /** 时间轴列表（Phase 2）：未删除，按 occurred_at 倒序，附分类名与标签 */
+  const ENTRY_SELECT = `
+    SELECT e.*,
+           c.name AS category_name, c.color AS category_color,
+           (SELECT COUNT(*) FROM media m WHERE m.entry_id = e.id) AS media_count,
+           (SELECT GROUP_CONCAT(t.name, CHAR(31)) FROM entry_tags et
+              JOIN tags t ON t.id = et.tag_id WHERE et.entry_id = e.id) AS tag_names
+    FROM entries e
+    LEFT JOIN categories c ON c.id = e.category_id`
+
+  function mapEntryRow(r) {
+    const tags = r.tag_names ? r.tag_names.split('\u001f') : []
+    delete r.tag_names
+    return { ...r, tags, title: r.title || titlePreview(r) }
+  }
+
   function listEntries(categoryId) {
-    const sql = `
-      SELECT e.*,
-             c.name AS category_name, c.color AS category_color,
-             (SELECT COUNT(*) FROM media m WHERE m.entry_id = e.id) AS media_count,
-             (SELECT GROUP_CONCAT(t.name, CHAR(31)) FROM entry_tags et
-                JOIN tags t ON t.id = et.tag_id WHERE et.entry_id = e.id) AS tag_names
-      FROM entries e
-      LEFT JOIN categories c ON c.id = e.category_id
+    const sql = `${ENTRY_SELECT}
       WHERE e.deleted = 0 ${categoryId ? 'AND e.category_id = ?' : ''}
       ORDER BY e.occurred_at DESC, e.created_at DESC`
-    const rows = categoryId
-      ? db.prepare(sql).all(categoryId)
-      : db.prepare(sql).all()
-    return rows.map((r) => {
-      const tags = r.tag_names ? r.tag_names.split('\u001f') : []
-      delete r.tag_names
-      return { ...r, tags, title: r.title || titlePreview(r) }
-    })
+    const rows = categoryId ? db.prepare(sql).all(categoryId) : db.prepare(sql).all()
+    return rows.map(mapEntryRow)
+  }
+
+  /**
+   * 全局搜索（Phase 3）：标题+正文（≥3 字走 FTS5 trigram，短词 LIKE 兜底）+ 标签名
+   * 可叠加分类过滤；返回形状与 listEntries 一致
+   */
+  function searchEntries(q, categoryId) {
+    q = String(q || '').trim()
+    if (!q) return listEntries(categoryId)
+
+    let ftsIds = []
+    if (q.length >= 3) {
+      try {
+        ftsIds = db.prepare('SELECT rowid FROM entries_fts WHERE entries_fts MATCH ?')
+          .all(`"${q.replace(/"/g, '""')}"`)
+          .map((r) => r.rowid)
+      } catch { /* FTS 异常时退回 LIKE */ }
+    }
+    const like = `%${q.replace(/[\\%_]/g, (m) => '\\' + m)}%`
+
+    const conds = ['e.deleted = 0']
+    const params = []
+    if (categoryId) { conds.push('e.category_id = ?'); params.push(categoryId) }
+    const orParts = []
+    if (ftsIds.length) {
+      orParts.push(`e.rowid IN (${ftsIds.map(() => '?').join(',')})`)
+      params.push(...ftsIds)
+    }
+    orParts.push(`e.title LIKE ? ESCAPE '\\'`)
+    params.push(like)
+    orParts.push(`e.content LIKE ? ESCAPE '\\'`)
+    params.push(like)
+    orParts.push(
+      `e.id IN (SELECT et.entry_id FROM entry_tags et JOIN tags t ON t.id = et.tag_id WHERE t.name LIKE ? ESCAPE '\\')`
+    )
+    params.push(like)
+    conds.push(`(${orParts.join(' OR ')})`)
+
+    const sql = `${ENTRY_SELECT}
+      WHERE ${conds.join(' AND ')}
+      ORDER BY e.occurred_at DESC, e.created_at DESC`
+    return db.prepare(sql).all(...params).map(mapEntryRow)
   }
 
   /** 软删 → 回收站（Phase 2，报告 §3.2） */
@@ -280,7 +410,9 @@ export function createDao(db, mediaDir, opts = {}) {
 
   return {
     getEntry, listToday, recentAddresses, listCategories, listAllTags,
-    listEntries, softDelete,
+    listEntries, searchEntries, softDelete,
+    createCategory, updateCategory, deleteCategory,
+    renameTag, mergeTags, deleteTag,
     ensureDraft, patchEntry, setTags,
     addMediaFile, addMediaBuffer, removeMedia,
     titlePreview, dailyLimit

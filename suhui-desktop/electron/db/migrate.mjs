@@ -83,6 +83,34 @@ const MIGRATIONS = [
          created_at TEXT NOT NULL
        )`
     ]
+  },
+  {
+    version: 3,
+    name: 'fts5-phase3',
+    up: [
+      /* trigram 分词：支持中文子串匹配（≥3 字走 FTS，短词由 DAO 回退 LIKE） */
+      `CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+         title, content,
+         content='entries', content_rowid='rowid',
+         tokenize='trigram'
+       )`,
+      `CREATE TRIGGER IF NOT EXISTS entries_fts_ai AFTER INSERT ON entries BEGIN
+         INSERT INTO entries_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
+       END`,
+      `CREATE TRIGGER IF NOT EXISTS entries_fts_ad AFTER DELETE ON entries BEGIN
+         INSERT INTO entries_fts(entries_fts, rowid, title, content)
+         VALUES ('delete', old.rowid, old.title, old.content);
+       END`,
+      `CREATE TRIGGER IF NOT EXISTS entries_fts_au AFTER UPDATE OF title, content ON entries BEGIN
+         INSERT INTO entries_fts(entries_fts, rowid, title, content)
+         VALUES ('delete', old.rowid, old.title, old.content);
+         INSERT INTO entries_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
+       END`,
+      /* 存量数据回填 */
+      `INSERT INTO entries_fts(rowid, title, content)
+         SELECT rowid, title, content FROM entries
+         WHERE rowid NOT IN (SELECT rowid FROM entries_fts)`
+    ]
   }
 ]
 

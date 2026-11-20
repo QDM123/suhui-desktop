@@ -13,6 +13,7 @@
             @click="tl.setFilter(c.id)"
           ><i class="cat-dot" :style="{ background: c.color }"></i>{{ c.name }}</span>
         </div>
+        <button class="tool-btn" title="管理分类" style="font-size:13px" @click="router.push('/categories')">⚙</button>
       </div>
       <div class="tl-scroll">
         <template v-if="tl.groups.length">
@@ -32,7 +33,7 @@
                 <span class="w">{{ WEEK_CN[e.weekday] }}</span>
                 <span class="time">{{ e.occurred_at.slice(11, 16) }}<template v-if="e.media_count"> · 🖼️{{ e.media_count }}</template></span>
               </div>
-              <div class="t2">{{ e.title || preview(e) }}</div>
+              <div class="t2" v-html="hl(e.title || preview(e))"></div>
               <div class="t3">
                 <span>{{ weatherOf(e.weather).icon }} {{ weatherOf(e.weather).name }}</span>
                 <span v-if="e.category_name">{{ e.category_name }}</span>
@@ -42,7 +43,7 @@
           </template>
         </template>
         <div v-else class="empty" style="padding:40px 10px;">
-          <span class="big">🍃</span>{{ tl.filterCat ? '该分类还没有日记' : '还没有日记，去写下第一篇吧' }}
+          <span class="big">🍃</span>{{ tl.searchQ.trim() ? '没有匹配的日记' : (tl.filterCat ? '该分类还没有日记' : '还没有日记，去写下第一篇吧') }}
         </div>
       </div>
     </div>
@@ -66,7 +67,7 @@
             <span v-if="readerEntry.mood != null">{{ moodOf(readerEntry.mood) }}</span>
           </div>
           <h1>{{ readerEntry.title || '（无标题）' }}</h1>
-          <div class="body">{{ readerEntry.content }}</div>
+          <div class="body" v-html="hl(readerEntry.content)"></div>
           <!-- 朋友圈式图片网格 -->
           <div v-if="tl.reader.media.length" class="r-imgs">
             <div
@@ -77,7 +78,13 @@
           </div>
           <div class="meta" style="margin-top:24px;font-size:11.5px;">
             <span>分类：{{ catName }}</span>
-            <span v-for="t in tl.reader.tags" :key="t.id">#{{ t.name }}</span>
+            <span
+              v-for="t in tl.reader.tags"
+              :key="t.id"
+              class="tag-link"
+              title="按标签搜索"
+              @click="searchTag(t.name)"
+            >#{{ t.name }}</span>
             <span>已更新 {{ readerEntry.rev }} 次</span>
           </div>
         </div>
@@ -134,6 +141,30 @@ function preview(e) {
   return first ? first.slice(0, 20) : '（无标题）'
 }
 
+/* 搜索高亮（Phase 3）：先按原文切分，再分段转义，避免实体拆词 */
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+}
+function hl(text) {
+  const t = String(text ?? '')
+  const q = tl.searchQ.trim()
+  if (!q) return escHtml(t)
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+  let out = ''
+  let last = 0
+  let m
+  while ((m = re.exec(t))) {
+    out += escHtml(t.slice(last, m.index)) + '<span class="hit">' + escHtml(m[0]) + '</span>'
+    last = m.index + m[0].length
+    if (m[0].length === 0) re.lastIndex++
+  }
+  return out + escHtml(t.slice(last))
+}
+
+function searchTag(name) {
+  tl.setSearch(name)
+}
+
 onMounted(async () => {
   await tl.loadCategories()
   await tl.load()
@@ -179,4 +210,6 @@ function lbMove(d) {
 .r-imgs div{overflow:hidden;cursor:zoom-in;background:var(--line);}
 .r-imgs img{width:100%;height:100%;object-fit:cover;display:block;transition:.15s;}
 .r-imgs img:hover{transform:scale(1.03);}
+.tag-link{cursor:pointer;color:var(--accent);}
+.tag-link:hover{text-decoration:underline;}
 </style>

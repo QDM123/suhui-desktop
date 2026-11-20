@@ -8,6 +8,7 @@ export const useTimelineStore = defineStore('timeline', {
   state: () => ({
     list: [],              // 列表条目（含 tags/category_name/media_count）
     filterCat: null,       // 分类过滤（null=全部）
+    searchQ: '',           // 全局搜索词（Phase 3，空=全部）
     categories: [],
     selectedId: null,
     reader: null,          // 选中条目完整数据 {entry, tags, media}
@@ -34,12 +35,23 @@ export const useTimelineStore = defineStore('timeline', {
       this.categories = await window.api.category.list()
     },
     async load() {
-      this.list = await window.api.diary.list(this.filterCat)
+      const q = this.searchQ.trim()
+      this.list = q
+        ? await window.api.diary.search(q, this.filterCat)
+        : await window.api.diary.list(this.filterCat)
       // 选中项失效（被删/被过滤）时自动切换
       if (this.selectedId && !this.list.some((e) => e.id === this.selectedId)) {
         this.selectedId = this.list[0]?.id ?? null
         await this.loadReader()
       } else if (this.selectedId && !this.reader) {
+        await this.loadReader()
+      }
+    },
+    async setSearch(q) {
+      this.searchQ = q
+      await this.load()
+      if (!this.list.some((e) => e.id === this.selectedId)) {
+        this.selectedId = this.list[0]?.id ?? null
         await this.loadReader()
       }
     },
