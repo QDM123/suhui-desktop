@@ -3,11 +3,12 @@
    Phase 0：窗口 / 标题栏控制 / IPC 白名单 / DB 初始化（WAL + quick_check）
    Phase 1：diary/tag/category/media IPC、media:// 协议、关窗 flush 守卫
    ============================================================ */
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol, Notification } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { initDb, getDb, getDao, paths } from './db'
 import { exportPdf, exportWord, exportLongImage, notifyDone } from './exporter.mjs'
+import { createBackupZip, dailySnapshot, validateBackup, doRestore } from './backup.mjs'
 
 let mainWindow = null
 let closeConfirmed = false
@@ -82,6 +83,12 @@ app.whenReady().then(() => {
   /* 回收站 30 天保留期：启动时清理（Phase 5，计划 §6-3） */
   const { purged } = getDao().cleanupExpired()
   if (purged > 0) console.log(`[回收站] 已自动清理超过 30 天的日记 ${purged} 篇`)
+
+  /* 每日首次启动自动快照（Phase 8，计划 §2.3 最后防线） */
+  dailySnapshot()
+
+  /* 提醒写日记：本地定时检查（Phase 8；应用未运行不提醒——托盘常驻为储备） */
+  startReminderScheduler()
 
   /* media:// 协议实现：只允许访问 media/ 目录下的安全文件名 */
   const MIME = {
@@ -241,6 +248,112 @@ ipcMain.handle('export:long-image', async (_e, entryId) => {
 ipcMain.handle('export:history', () => getDao().listExportFiles())
 ipcMain.handle('export:delete-record', (_e, id) => getDao().deleteExportFile(id))
 ipcMain.handle('export:reveal', (_e, p) => { shell.showItemInFolder(p); return true })
+
+/* ---------- 提醒写日记（Phase 8） ---------- */
+
+const REMINDER = { enabled: false, time: '21:00', lastDay: null }
+
+function getSetting(key, fallback = null) {
+  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key)
+  return row ? row.value : fallback
+}
+function setSetting(key, value) {
+  getDb()
+    .prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+    .run(key, String(value))
+}
+
+async function loadReminderSettings() {
+  REMINDER.enabled = getSetting('reminder.enabled', '0') === '1'
+  REMINDER.time = getSetting('reminder.time', '21:00')
+  REMINDER.lastDay = getSetting('reminder.lastDay', null)
+}
+
+function checkReminder() {
+  if (!REMINDER.enabled) return
+  const now = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  const hhmm = `${p(now.getHours())}:${p(now.getMinutes())}`
+  if (hhmm < REMINDER.time) return // 还没到提醒时间
+  const today = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
+  if (REMINDER.lastDay === today) return
+  REMINDER.lastDay = today
+  setSetting('reminder.lastDay', today)
+  if (getDao().countToday() > 0) return // 今天已经写过，不打扰
+  const n = new Notification({
+    title: '溯洄 · 桌面版',
+    body: '今天还没有写日记哦，快补上...'
+  })
+  n.on('click', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+    mainWindow.webContents.send('app:open-write')
+  })
+  n.show()
+}
+
+function startReminderScheduler() {
+  loadReminderSettings().then(() => checkReminder()).catch(() => {})
+  setInterval(() => {
+    try { checkReminder() } catch { /* dao 未就绪等极端情况 */ }
+  }, 30000)
+}
+
+ipcMain.handle('reminder:get', () => ({
+  enabled: REMINDER.enabled,
+  time: REMINDER.time
+}))
+
+ipcMain.handle('reminder:set', async (_e, { enabled, time }) => {
+  if (enabled && !/^\d{2}:\d{2}$/.test(time || '')) {
+    return { ok: false, error: '时间格式不正确' }
+  }
+  REMINDER.enabled = !!enabled
+  REMINDER.time = time || '21:00'
+  setSetting('reminder.enabled', REMINDER.enabled ? '1' : '0')
+  setSetting('reminder.time', REMINDER.time)
+  if (REMINDER.enabled) checkReminder()
+  return { ok: true }
+})
+
+/* ---------- 备份 / 恢复（Phase 8） ---------- */
+
+ipcMain.handle('backup:create', async () => {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  const name = `suhui-backup-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.zip`
+  const r = await dialog.showSaveDialog(mainWindow, {
+    title: '备份到哪里',
+    defaultPath: path.join(app.getPath('documents'), name),
+    filters: [{ name: 'ZIP 备份', extensions: ['zip'] }]
+  })
+  if (r.canceled || !r.filePath) return { canceled: true }
+  const size = await createBackupZip(r.filePath)
+  return { ok: true, path: r.filePath, size }
+})
+
+ipcMain.handle('backup:pick', async () => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: '选择备份文件',
+    properties: ['openFile'],
+    filters: [{ name: 'ZIP 备份', extensions: ['zip'] }]
+  })
+  if (r.canceled || !r.filePaths.length) return { canceled: true }
+  const v = validateBackup(r.filePaths[0])
+  return { path: r.filePaths[0], ...v }
+})
+
+ipcMain.handle('backup:restore', (_e, zipPath) => {
+  doRestore(zipPath)
+  app.relaunch()
+  app.exit(0)
+  return true
+})
 
 /* ---------- 分类/标签管理（Phase 3） ---------- */
 ipcMain.handle('category:create', (_e, name, color) => getDao().createCategory(name, color))

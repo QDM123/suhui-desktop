@@ -75,6 +75,13 @@ export function createDao(db, mediaDir, opts = {}) {
     }))
   }
 
+  /** 今日已有篇数（Phase 8 提醒用：今天没写才提醒） */
+  function countToday() {
+    return db.prepare(
+      'SELECT COUNT(*) AS c FROM entries WHERE day = ? AND deleted = 0'
+    ).get(localDay()).c
+  }
+
   function recentAddresses(limit = 4) {
     return db.prepare(
       `SELECT DISTINCT address FROM entries
@@ -564,7 +571,7 @@ export function createDao(db, mediaDir, opts = {}) {
   }
 
   return {
-    getEntry, listToday, recentAddresses, listCategories, listAllTags,
+    getEntry, listToday, countToday, recentAddresses, listCategories, listAllTags,
     listEntries, searchEntries, softDelete,
     entriesInRange, latestWeather,
     listAllMedia, listDeleted, restore, purge, cleanupExpired,
