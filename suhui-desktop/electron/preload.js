@@ -17,7 +17,32 @@ const api = {
   app: {
     stats: () => ipcRenderer.invoke('app:stats'),
     dataDir: () => ipcRenderer.invoke('app:get-data-dir'),
-    openDataDir: () => ipcRenderer.invoke('app:open-data-dir')
+    openDataDir: () => ipcRenderer.invoke('app:open-data-dir'),
+    recentAddresses: () => ipcRenderer.invoke('app:recent-addresses'),
+    /* 关窗守卫（Phase 1）：主进程 close 拦截 → 通知渲染进程 flush → confirmClose */
+    onBeforeClose: (cb) => {
+      ipcRenderer.on('app:before-close', () => cb())
+    },
+    confirmClose: () => ipcRenderer.send('app:confirm-close')
+  },
+  diary: {
+    ensureDraft: (init) => ipcRenderer.invoke('diary:ensure-draft', init),
+    patch: (id, patch) => ipcRenderer.invoke('diary:patch', id, patch),
+    get: (id) => ipcRenderer.invoke('diary:get', id),
+    today: () => ipcRenderer.invoke('diary:today'),
+    setTags: (id, names) => ipcRenderer.invoke('diary:set-tags', id, names)
+  },
+  category: {
+    list: () => ipcRenderer.invoke('category:list')
+  },
+  tag: {
+    listAll: () => ipcRenderer.invoke('tag:list-all')
+  },
+  media: {
+    pickAndAdd: (entryId) => ipcRenderer.invoke('media:pick-and-add', entryId),
+    addBuffer: (entryId, name, buf) =>
+      ipcRenderer.invoke('media:add-buffer', entryId, name, buf),
+    remove: (id) => ipcRenderer.invoke('media:remove', id)
   }
 }
 

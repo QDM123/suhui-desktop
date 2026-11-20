@@ -4,12 +4,14 @@
    - 启动 quick_check，损坏时整体转存留证后重建
    ============================================================ */
 import Database from 'better-sqlite3'
-import { app } from 'electron'
+import { app, nativeImage } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { runMigrations } from './migrate'
+import { runMigrations } from './migrate.mjs'
+import { createDao } from './dao.mjs'
 
 let db = null
+let dao = null
 
 const DB_FILE = 'suhui.db'
 /* 旧版（wuji-desktop）数据目录：包名变更后 Electron 的 userData 路径随之变化，
@@ -88,12 +90,26 @@ export function initDb() {
   }
 
   runMigrations(db)
+  const getDims = (file) => {
+    try {
+      const s = nativeImage.createFromPath(file).getSize()
+      return { width: s.width, height: s.height }
+    } catch {
+      return { width: 0, height: 0 }
+    }
+  }
+  dao = createDao(db, paths.mediaDir(), { getDims })
   return { quarantined }
 }
 
 export function getDb() {
   if (!db) throw new Error('数据库尚未初始化（initDb 未调用）')
   return db
+}
+
+export function getDao() {
+  if (!dao) throw new Error('DAO 尚未初始化（initDb 未调用）')
+  return dao
 }
 
 export function closeDb() {
