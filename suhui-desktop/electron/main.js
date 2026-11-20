@@ -3,7 +3,7 @@
    Phase 0：窗口 / 标题栏控制 / IPC 白名单 / DB 初始化（WAL + quick_check）
    Phase 1：diary/tag/category/media IPC、media:// 协议、关窗 flush 守卫
    ============================================================ */
-import { app, BrowserWindow, ipcMain, dialog, shell, protocol, Notification } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, protocol, Notification, session } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { initDb, getDb, getDao, paths } from './db'
@@ -89,6 +89,11 @@ app.whenReady().then(() => {
 
   /* 提醒写日记：本地定时检查（Phase 8；应用未运行不提醒——托盘常驻为储备） */
   startReminderScheduler()
+
+  /* 写日记自动填充：仅放行 geolocation 权限，其余拒绝 */
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'geolocation')
+  })
 
   /* media:// 协议实现：只允许访问 media/ 目录下的安全文件名 */
   const MIME = {
