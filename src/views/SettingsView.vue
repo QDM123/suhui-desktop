@@ -33,6 +33,10 @@
         <span>#️⃣</span><span class="grow">标签管理<div class="s">重命名 / 合并 / 删除孤儿标签</div></span>
         <span style="color:var(--text-secondary)">›</span>
       </div>
+      <div class="set-row" style="cursor:pointer" @click="router.push('/papers')">
+        <span>📜</span><span class="grow">信纸 DIY<div class="s">上传图片 / 参数生成自定义信纸，内置 15 款</div></span>
+        <span style="color:var(--text-secondary)">›</span>
+      </div>
     </div>
 
     <!-- 偏好 -->

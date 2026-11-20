@@ -60,7 +60,11 @@
           <button class="tool-btn" title="删除" @click="del">🗑️</button>
           <button class="tool-btn" title="生成长图" @click="makeLongImage">🖼️</button>
         </div>
-        <div class="paper" :class="app.night ? 'paper-5' : (readerEntry.background || 'paper-1')">
+        <div
+          class="paper"
+          :class="paperInfo.cls"
+          :style="paperInfo.style"
+        >
           <div class="meta">
             <span>{{ dateLabel }}</span>
             <span>{{ weatherOf(readerEntry.weather).icon }} {{ weatherOf(readerEntry.weather).name }}</span>
@@ -110,6 +114,7 @@ import { useRouter } from 'vue-router'
 import { useTimelineStore } from '../stores/timeline'
 import { useUiStore } from '../stores/ui'
 import { useAppStore } from '../stores/app'
+import { usePaperStore } from '../stores/papers'
 import { WEEK_CN, weatherOf, moodOf } from '../constants'
 import Lightbox from '../components/Lightbox.vue'
 
@@ -117,11 +122,20 @@ const router = useRouter()
 const tl = useTimelineStore()
 const ui = useUiStore()
 const app = useAppStore()
+const ps = usePaperStore()
 
 const lbShow = ref(false)
 const lbIndex = ref(0)
 
 const readerEntry = computed(() => tl.reader?.entry || null)
+/* 信纸解析与编辑器同规则：夜间内置→paper-5，自定义保持 */
+const paperInfo = computed(() => {
+  const bg = readerEntry.value?.background
+  if (app.night && !(bg || '').startsWith('custom:')) {
+    return { cls: 'paper-5', style: null }
+  }
+  return ps.resolve(bg)
+})
 const catName = computed(() => {
   const id = readerEntry.value?.category_id
   return tl.categories.find((c) => c.id === id)?.name || '未分类'
@@ -170,6 +184,7 @@ function searchTag(name) {
 onMounted(async () => {
   await tl.loadCategories()
   await tl.load()
+  ps.load()
   // 编辑器完成后的预选 / 默认选第一篇
   const target = tl.pendingSelectId && tl.list.some((e) => e.id === tl.pendingSelectId)
     ? tl.pendingSelectId

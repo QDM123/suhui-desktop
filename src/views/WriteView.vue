@@ -11,6 +11,7 @@
         <template v-else></template>
       </span>
       <span class="sp"></span>
+      <button class="tool-btn big" title="自动保存并前往时间轴" @click="leave">📖</button>
       <button class="btn" @click="done">完成</button>
     </div>
 
@@ -45,7 +46,7 @@
     </div>
 
     <!-- 信笺纸：标题 + 正文 -->
-    <div class="ed-paper" :class="paperClass" @paste="onPaste">
+    <div class="ed-paper" :class="paperInfo.cls" :style="paperInfo.style" @paste="onPaste">
       <input class="ed-title" placeholder="标题（可留空）" :value="ed.fields.title"
              @input="ed.setField('title', $event.target.value)">
 
@@ -53,10 +54,18 @@
                 :value="ed.fields.content"
                 @input="ed.setField('content', $event.target.value)"></textarea>
 
-      <!-- 信笺选择 -->
+      <!-- 信笺选择：默认 5 款 + 全部 -->
       <div class="paper-pick">
-        <div v-for="p in PAPERS" :key="p" class="paper-thumb" :class="[p, { on: ed.fields.background === p }]"
-             @click="ed.setField('background', p)"></div>
+        <div
+          v-for="p in pickList"
+          :key="p.value"
+          class="paper-thumb"
+          :class="[p.cls, { on: ed.fields.background === p.value }]"
+          :style="p.style"
+          :title="p.name"
+          @click="ed.setField('background', p.value)"
+        ></div>
+        <div class="paper-thumb all" title="全部信纸" @click="showPapers = true">⋯</div>
       </div>
     </div>
 
@@ -80,6 +89,22 @@
       @close="lbShow = false"
       @move="lbMove"
     />
+
+    <!-- 全部信纸 -->
+    <Modal :visible="showPapers" title="全部信纸" @close="showPapers = false">
+      <div class="paper-grid">
+        <div
+          v-for="opt in ps.options"
+          :key="opt.value"
+          class="pg-item"
+          :class="{ on: ed.fields.background === opt.value }"
+          @click="ed.setField('background', opt.value); showPapers = false"
+        >
+          <div class="pg-thumb" :class="ps.resolve(opt.value).cls" :style="ps.resolve(opt.value).style"></div>
+          <span class="pg-name">{{ opt.custom ? opt.name : '' }}</span>
+        </div>
+      </div>
+    </Modal>
 
     <!-- 天气 -->
     <Modal :visible="show.weather" title="今天天气" @close="show.weather = false">
@@ -144,8 +169,9 @@ import { useEditorStore } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
 import { useAppStore } from '../stores/app'
 import { useTimelineStore } from '../stores/timeline'
-import { WEATHERS, MOODS, PAPERS, weatherOf, moodOf, fmtDay, fmtClock, DAILY_LIMIT } from '../constants'
+import { WEATHERS, MOODS, BUILTIN_PAPERS, weatherOf, moodOf, fmtDay, fmtClock, DAILY_LIMIT } from '../constants'
 import { getAutoInfo } from '../autofill'
+import { usePaperStore } from '../stores/papers'
 import Modal from '../components/Modal.vue'
 import Lightbox from '../components/Lightbox.vue'
 
@@ -155,8 +181,10 @@ const ed = useEditorStore()
 const ui = useUiStore()
 const app = useAppStore()
 const tl = useTimelineStore()
+const ps = usePaperStore()
 
 const show = reactive({ weather: false, mood: false, category: false, tags: false, address: false })
+const showPapers = ref(false)
 const categories = ref([])
 const allTags = ref([])
 const recentAddresses = ref([])
@@ -177,7 +205,30 @@ const todayStr = fmtDay()
 const weatherIcon = computed(() => weatherOf(ed.fields.weather).icon)
 const weatherName = computed(() => weatherOf(ed.fields.weather).name)
 const moodIcon = computed(() => (ed.fields.mood == null ? '😶' : moodOf(ed.fields.mood)))
-const paperClass = computed(() => (app.night ? 'paper-5' : ed.fields.background))
+/* 信纸解析：夜间内置→paper-5；自定义信纸保持用户选择 */
+const paperInfo = computed(() => {
+  const bg = ed.fields.background
+  if (app.night && !(bg || '').startsWith('custom:')) {
+    return { cls: 'paper-5', style: null }
+  }
+  return ps.resolve(bg)
+})
+/* 默认展示 5 款：当前选中优先 + 内置补足 */
+const pickList = computed(() => {
+  const bg = ed.fields.background
+  const list = []
+  const push = (value, name) => {
+    if (list.length >= 5 || list.some((x) => x.value === value)) return
+    const r = ps.resolve(value)
+    list.push({ value, name: name || value, cls: r.cls, style: r.style })
+  }
+  if (bg) push(bg)
+  for (const p of BUILTIN_PAPERS) {
+    if (list.length >= 5) break
+    push(p)
+  }
+  return list
+})
 const savedClock = computed(() => (ed.savedAt ? fmtClock(ed.savedAt) : ''))
 const catName = computed(() => {
   const c = categories.value.find((x) => x.id === ed.fields.category_id)
@@ -201,6 +252,7 @@ onMounted(async () => {
   draftTags.value = [...ed.tags]
   defaultsAtOpen.value = { address: ed.fields.address, weather: ed.fields.weather }
   categories.value = await window.api.category.list()
+  ps.load()
   if (ed.isNew) applyAuto(true) // 新日记静默自动填充，失败不打扰
 })
 

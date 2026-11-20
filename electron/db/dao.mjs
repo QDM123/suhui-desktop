@@ -401,6 +401,33 @@ export function createDao(db, mediaDir, opts = {}) {
     return { ok: true }
   }
 
+  /* ---------- 信纸 DIY（Phase 9 追加，用户确认方案：图片上传 + 参数生成） ---------- */
+
+  function listPapers() {
+    return db.prepare('SELECT * FROM papers ORDER BY created_at DESC, id').all()
+      .map((r) => ({ ...r, config: r.config ? JSON.parse(r.config) : null }))
+  }
+
+  function addPaper({ name, kind, file_name = null, config = null }) {
+    name = String(name || '').trim()
+    if (!name) throw new Error('信纸名称不能为空')
+    if (kind !== 'image' && kind !== 'gen') throw new Error('信纸类型不正确')
+    const id = randomUUID()
+    db.prepare(
+      'INSERT INTO papers (id, name, kind, file_name, config, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, name, kind, file_name, config ? JSON.stringify(config) : null, localDateTime())
+    return db.prepare('SELECT * FROM papers WHERE id = ?').get(id)
+  }
+
+  function deletePaper(id) {
+    db.prepare('DELETE FROM papers WHERE id = ?').run(id)
+    return { ok: true }
+  }
+
+  function getPaperFile(id) {
+    return db.prepare('SELECT * FROM papers WHERE id = ?').get(id)
+  }
+
   /** 软删 → 回收站（Phase 2，报告 §3.2） */
   function softDelete(id) {
     const now = localDateTime()
@@ -576,6 +603,7 @@ export function createDao(db, mediaDir, opts = {}) {
     entriesInRange, latestWeather,
     listAllMedia, listDeleted, restore, purge, cleanupExpired,
     listForExport, addExportFile, listExportFiles, deleteExportFile,
+    listPapers, addPaper, deletePaper, getPaperFile,
     createCategory, updateCategory, deleteCategory,
     renameTag, mergeTags, deleteTag,
     ensureDraft, patchEntry, setTags,

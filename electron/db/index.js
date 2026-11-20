@@ -22,7 +22,8 @@ const LEGACY_DB_FILE = 'wuji.db'
 export const paths = {
   dataDir: () => app.getPath('userData'),
   dbPath: () => path.join(app.getPath('userData'), DB_FILE),
-  mediaDir: () => path.join(app.getPath('userData'), 'media')
+  mediaDir: () => path.join(app.getPath('userData'), 'media'),
+  papersDir: () => path.join(app.getPath('userData'), 'papers')
 }
 
 function openDb() {
@@ -79,6 +80,7 @@ function migrateLegacyData() {
 export function initDb() {
   migrateLegacyData()
   fs.mkdirSync(paths.mediaDir(), { recursive: true })
+  fs.mkdirSync(paths.papersDir(), { recursive: true })
   db = openDb()
 
   const check = db.pragma('quick_check', { simple: true })
