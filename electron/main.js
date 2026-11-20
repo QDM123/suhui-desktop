@@ -173,6 +173,10 @@ ipcMain.handle('diary:get', (_e, id) => getDao().getEntry(id))
 ipcMain.handle('diary:today', () => getDao().listToday())
 ipcMain.handle('diary:set-tags', (_e, id, names) => getDao().setTags(id, names))
 
+/* ---------- 日记（Phase 2：时间轴） ---------- */
+ipcMain.handle('diary:list', (_e, categoryId) => getDao().listEntries(categoryId))
+ipcMain.handle('diary:soft-delete', (_e, id) => getDao().softDelete(id))
+
 /* ---------- 分类 / 标签 ---------- */
 ipcMain.handle('category:list', () => getDao().listCategories())
 ipcMain.handle('tag:list-all', () => getDao().listAllTags())

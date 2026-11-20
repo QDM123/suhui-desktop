@@ -87,6 +87,37 @@ export function createDao(db, mediaDir, opts = {}) {
     return db.prepare('SELECT * FROM categories ORDER BY sort, id').all()
   }
 
+  /** 时间轴列表（Phase 2）：未删除，按 occurred_at 倒序，附分类名与标签 */
+  function listEntries(categoryId) {
+    const sql = `
+      SELECT e.*,
+             c.name AS category_name, c.color AS category_color,
+             (SELECT COUNT(*) FROM media m WHERE m.entry_id = e.id) AS media_count,
+             (SELECT GROUP_CONCAT(t.name, CHAR(31)) FROM entry_tags et
+                JOIN tags t ON t.id = et.tag_id WHERE et.entry_id = e.id) AS tag_names
+      FROM entries e
+      LEFT JOIN categories c ON c.id = e.category_id
+      WHERE e.deleted = 0 ${categoryId ? 'AND e.category_id = ?' : ''}
+      ORDER BY e.occurred_at DESC, e.created_at DESC`
+    const rows = categoryId
+      ? db.prepare(sql).all(categoryId)
+      : db.prepare(sql).all()
+    return rows.map((r) => {
+      const tags = r.tag_names ? r.tag_names.split('\u001f') : []
+      delete r.tag_names
+      return { ...r, tags, title: r.title || titlePreview(r) }
+    })
+  }
+
+  /** 软删 → 回收站（Phase 2，报告 §3.2） */
+  function softDelete(id) {
+    const now = localDateTime()
+    const r = db.prepare(
+      'UPDATE entries SET deleted = 1, deleted_at = ? WHERE id = ? AND deleted = 0'
+    ).run(now, id)
+    return { ok: r.changes > 0 }
+  }
+
   function listAllTags() {
     return db.prepare(
       `SELECT t.id, t.name, COUNT(et.entry_id) AS used
@@ -249,6 +280,7 @@ export function createDao(db, mediaDir, opts = {}) {
 
   return {
     getEntry, listToday, recentAddresses, listCategories, listAllTags,
+    listEntries, softDelete,
     ensureDraft, patchEntry, setTags,
     addMediaFile, addMediaBuffer, removeMedia,
     titlePreview, dailyLimit

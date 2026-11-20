@@ -30,7 +30,9 @@ const api = {
     patch: (id, patch) => ipcRenderer.invoke('diary:patch', id, patch),
     get: (id) => ipcRenderer.invoke('diary:get', id),
     today: () => ipcRenderer.invoke('diary:today'),
-    setTags: (id, names) => ipcRenderer.invoke('diary:set-tags', id, names)
+    setTags: (id, names) => ipcRenderer.invoke('diary:set-tags', id, names),
+    list: (categoryId) => ipcRenderer.invoke('diary:list', categoryId),
+    softDelete: (id) => ipcRenderer.invoke('diary:soft-delete', id)
   },
   category: {
     list: () => ipcRenderer.invoke('category:list')

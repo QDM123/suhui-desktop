@@ -99,6 +99,19 @@ let limited = false
 try { dao.ensureDraft({}) } catch (e) { limited = e.code === 'DAILY_LIMIT' && e.message === '每日新增日记超过150篇限制' }
 ok(limited, '超限抛出实证文案')
 
+console.log('\n[8] Phase 2：时间轴列表 / 软删')
+const before = dao.listEntries().length
+const item = dao.listEntries().find((x) => x.id === id)
+ok(!!item && item.category_name === '工作' && item.tags.includes('猫'), 'listEntries 附分类名与标签')
+ok(item.media_count === 1, 'media_count 统计')
+const filtered = dao.listEntries(2)
+ok(filtered.length > 0 && filtered.every((x) => x.category_id === 2), '分类过滤生效')
+ok(dao.listEntries()[0].occurred_at >= dao.listEntries().at(-1).occurred_at, '按时间倒序')
+const del = dao.softDelete(id)
+ok(del.ok && dao.listEntries().length === before - 1, '软删后从列表消失')
+ok(dao.getEntry(id).entry.deleted === 1, 'deleted=1 落库（回收站可恢复）')
+ok(!dao.softDelete(id).ok, '重复软删返回 false')
+
 console.log(`\n结果：${passed} 通过，${failed} 失败`)
 db.close()
 fs.rmSync(tmp, { recursive: true, force: true })
