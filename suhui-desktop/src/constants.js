@@ -17,8 +17,13 @@ export const WEATHERS = [
 
 export const MOODS = ['😔', '😐', '🙂', '😊', '😄']
 
-/* 编辑器可选信笺（夜间模式统一用 paper-5，见 WriteView） */
-export const PAPERS = ['paper-1', 'paper-2', 'paper-3', 'paper-4', 'paper-6']
+/* 内置信笺（夜间模式统一用 paper-5；paper-5 不在日间可选列表）
+   Phase 9 追加：内置由 5 款扩充到 15 款（paper-1~4、6~16） */
+export const BUILTIN_PAPERS = [
+  'paper-1', 'paper-2', 'paper-3', 'paper-4', 'paper-6',
+  'paper-7', 'paper-8', 'paper-9', 'paper-10',
+  'paper-11', 'paper-12', 'paper-13', 'paper-14', 'paper-15', 'paper-16'
+]
 export const NIGHT_PAPER = 'paper-5'
 
 export const THEMES = [

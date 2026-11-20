@@ -32,7 +32,7 @@ db.pragma('journal_mode = WAL')
 
 console.log('\n[1] 迁移')
 const v = runMigrations(db)
-ok(v === 3, `user_version = 3（实际 ${v}）`)
+ok(v === 4, `user_version = 4（实际 ${v}）`)
 ok(db.prepare('SELECT COUNT(*) c FROM categories').get().c === 4, '预置 4 个分类')
 ok(!!db.prepare("SELECT name FROM sqlite_master WHERE name='entries'").get(), 'entries 表存在')
 ok(!!db.prepare("SELECT name FROM sqlite_master WHERE name='media'").get(), 'media 表存在')

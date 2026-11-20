@@ -9,6 +9,7 @@ import ExportView from './views/ExportView.vue'
 import SettingsView from './views/SettingsView.vue'
 import CategoryManageView from './views/CategoryManageView.vue'
 import TagManageView from './views/TagManageView.vue'
+import PaperManageView from './views/PaperManageView.vue'
 
 export const NAV_ITEMS = [
   { path: '/write',     label: '写日记',   icon: '✏️', comp: WriteView },
@@ -35,7 +36,8 @@ const router = createRouter({
     })),
     /* 管理页（不在侧栏，从设置/时间轴进入） */
     { path: '/categories', name: 'categories', component: CategoryManageView },
-    { path: '/tags', name: 'tags', component: TagManageView }
+    { path: '/tags', name: 'tags', component: TagManageView },
+    { path: '/papers', name: 'papers', component: PaperManageView }
   ]
 })
 

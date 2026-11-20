@@ -111,6 +111,20 @@ const MIGRATIONS = [
          SELECT rowid, title, content FROM entries
          WHERE rowid NOT IN (SELECT rowid FROM entries_fts)`
     ]
+  },
+  {
+    version: 4,
+    name: 'papers-diy',
+    up: [
+      `CREATE TABLE IF NOT EXISTS papers (
+         id         TEXT PRIMARY KEY,
+         name       TEXT NOT NULL,
+         kind       TEXT NOT NULL,           -- image=上传图片 / gen=参数生成
+         file_name  TEXT,                    -- image: papers/<uuid>.<ext>
+         config     TEXT,                    -- gen: JSON {base, pattern, patternColor}
+         created_at TEXT NOT NULL
+       )`
+    ]
   }
 ]
 

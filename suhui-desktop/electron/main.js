@@ -4,6 +4,7 @@
    Phase 1：diary/tag/category/media IPC、media:// 协议、关窗 flush 守卫
    ============================================================ */
 import { app, BrowserWindow, ipcMain, dialog, shell, protocol, Notification, session } from 'electron'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { initDb, getDb, getDao, paths } from './db'
@@ -32,10 +33,11 @@ if (!gotLock) {
   })
 }
 
-/* 自定义协议 media://（渲染进程图片显示，Phase 1）
+/* 自定义协议 media://（照片）/ paper://（自定义信纸图片）
    必须在 app ready 之前注册 scheme */
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true } }
+  { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  { scheme: 'paper', privileges: { standard: true, secure: true, supportFetchAPI: true } }
 ])
 
 function createWindow() {
@@ -105,13 +107,13 @@ app.whenReady().then(() => {
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.gif': 'image/gif', '.bmp': 'image/bmp', '.webp': 'image/webp'
   }
-  protocol.handle('media', (req) => {
+  const serveDir = (baseDir) => (req) => {
     try {
       const name = decodeURIComponent(new URL(req.url).hostname)
       if (!/^[a-z0-9][a-z0-9.-]*$/.test(name) || name.includes('..')) {
         return new Response('bad name', { status: 400 })
       }
-      const file = path.join(paths.mediaDir(), name)
+      const file = path.join(baseDir, name)
       const ext = path.extname(name).toLowerCase()
       if (!MIME[ext] || !fs.existsSync(file)) {
         return new Response('not found', { status: 404 })
@@ -119,10 +121,12 @@ app.whenReady().then(() => {
       return new Response(fs.readFileSync(file), {
         headers: { 'content-type': MIME[ext], 'cache-control': 'no-cache' }
       })
-    } catch (e) {
+    } catch {
       return new Response('error', { status: 500 })
     }
-  })
+  }
+  protocol.handle('media', serveDir(paths.mediaDir()))
+  protocol.handle('paper', serveDir(paths.papersDir()))
 
   createWindow()
 
@@ -258,6 +262,55 @@ ipcMain.handle('export:long-image', async (_e, entryId) => {
 ipcMain.handle('export:history', () => getDao().listExportFiles())
 ipcMain.handle('export:delete-record', (_e, id) => getDao().deleteExportFile(id))
 ipcMain.handle('export:reveal', (_e, p) => { shell.showItemInFolder(p); return true })
+
+/* ---------- 信纸 DIY（图片上传 + 参数生成） ---------- */
+ipcMain.handle('papers:list', () => getDao().listPapers())
+
+ipcMain.handle('papers:add-image', async (_e, name) => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: '选择信纸图片',
+    properties: ['openFile'],
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }]
+  })
+  if (r.canceled || !r.filePaths.length) return { canceled: true }
+  const src = r.filePaths[0]
+  const ext = path.extname(src).toLowerCase()
+  const fileName = crypto.randomUUID() + ext
+  fs.mkdirSync(paths.papersDir(), { recursive: true })
+  fs.copyFileSync(src, path.join(paths.papersDir(), fileName))
+  const row = getDao().addPaper({
+    name: name || path.basename(src, ext),
+    kind: 'image',
+    file_name: fileName
+  })
+  return { ok: true, paper: { ...row, config: row.config ? JSON.parse(row.config) : null } }
+})
+
+ipcMain.handle('papers:add-gen', (_e, name, config) => {
+  const clean = {
+    base: /^#[0-9a-fA-F]{6}$/.test(config?.base || '') ? config.base : '#fffdf8',
+    pattern: ['none', 'lines', 'dots', 'grid'].includes(config?.pattern) ? config.pattern : 'none',
+    patternColor: /^#[0-9a-fA-F]{6}$/.test(config?.patternColor || '')
+      ? hexToRgba(config.patternColor, 0.16)
+      : 'rgba(0,150,140,.16)'
+  }
+  const row = getDao().addPaper({ name, kind: 'gen', config: clean })
+  return { ...row, config: clean }
+})
+
+ipcMain.handle('papers:remove', (_e, id) => {
+  const row = getDao().getPaperFile(id)
+  if (row?.file_name) {
+    const f = path.join(paths.papersDir(), row.file_name)
+    try { fs.existsSync(f) && fs.unlinkSync(f) } catch { /* ignore */ }
+  }
+  return getDao().deletePaper(id)
+})
+
+function hexToRgba(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16)
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`
+}
 
 /* ---------- 提醒写日记（Phase 8） ---------- */
 
