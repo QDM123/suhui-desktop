@@ -10,6 +10,11 @@ import { initDb, getDb, getDao, paths } from './db'
 import { exportPdf, exportWord, exportLongImage, notifyDone } from './exporter.mjs'
 import { createBackupZip, dailySnapshot, validateBackup, doRestore } from './backup.mjs'
 
+/* 数据目录固定为 %APPDATA%/suhui-desktop：
+   打包后 productName（溯洄桌面版）会改变 app.name，进而改变默认 userData，
+   这里显式钉死，保证开发/安装版/便携版共用同一数据目录 */
+app.setPath('userData', path.join(app.getPath('appData'), 'suhui-desktop'))
+
 let mainWindow = null
 let closeConfirmed = false
 
