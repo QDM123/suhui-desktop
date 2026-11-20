@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>吾记 · 桌面版界面参考（Qt 实现参照）</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- ============ 桌面窗口外壳（对应 QMainWindow） ============ -->
+<div class="window" id="window">
+
+  <!-- 标题栏（对应自定义 TitleBar / QToolBar） -->
+  <div class="titlebar">
+    <span class="tb-logo">📖</span>
+    <span class="tb-app">吾记 · 桌面版</span>
+    <div class="tb-search">
+      <span>🔍</span>
+      <input id="global-q" placeholder="全局搜索：标题 / 正文 / 标签（Ctrl+K）" oninput="globalSearch(this.value)">
+    </div>
+    <div class="tb-btns">
+      <button class="tb-btn" onclick="toast('Qt: showMinimized()')" title="最小化">—</button>
+      <button class="tb-btn" onclick="toast('Qt: showMaximized()')" title="最大化">▢</button>
+      <button class="tb-btn close" onclick="toast('Qt: close()')" title="关闭">✕</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- 左侧导航（对应 QListWidget/QToolBox 侧栏） -->
+    <nav class="sidebar" id="sidebar">
+      <button class="nav-item" data-view="write"><span>✏️</span>写日记</button>
+      <button class="nav-item" data-view="timeline"><span>📖</span>时间轴</button>
+      <button class="nav-item" data-view="calendar"><span>📅</span>日历</button>
+      <button class="nav-item" data-view="tunnel"><span>🕳️</span>时光隧道</button>
+      <button class="nav-item" data-view="album"><span>🖼️</span>相册</button>
+      <button class="nav-item" data-view="bin"><span>🗑️</span>回收站</button>
+      <button class="nav-item" data-view="export"><span>📤</span>导出</button>
+      <div class="nav-sep"></div>
+      <button class="nav-item" data-view="settings"><span>⚙️</span>设置</button>
+      <button class="nav-item collapse" id="collapse-btn" onclick="toggleSidebar()" title="折叠侧栏（Qt: QDockWidget::toggleViewAction）"><span>⇤</span>折叠</button>
+    </nav>
+
+    <!-- 内容区（对应 QStackedWidget 中央区） -->
+    <div class="content" id="content"></div>
+
+    <!-- 右侧属性面板（对应 QDockWidget "属性"） -->
+    <aside class="inspector" id="inspector"></aside>
+  </div>
+
+  <!-- 状态栏（对应 QStatusBar） -->
+  <div class="statusbar">
+    <span id="status-hint">就绪 —— 点击左侧时间轴任意条目，这里显示 Qt 实现要点</span>
+    <span class="sb-right"><span id="status-count"></span><span id="status-save"></span></span>
+  </div>
+</div>
+
+<!-- 弹窗层 -->
+<div class="dialog-mask" id="dialog-mask" hidden>
+  <div class="dialog">
+    <div class="dialog-title" id="dialog-title"></div>
+    <div class="dialog-body" id="dialog-body"></div>
+    <div class="dialog-btns" id="dialog-btns"></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
