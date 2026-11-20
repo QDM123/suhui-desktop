@@ -43,6 +43,11 @@
     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;letter-spacing:1px;">偏好</div>
     <div class="set-group">
       <div class="set-row">
+        <span>🚀</span>
+        <span class="grow">随系统启动<div class="s">开机自动打开溯洄，第一时间记录（安装版生效）</div></span>
+        <span class="switch" :class="{ on: autostart }" @click="toggleAutostart"></span>
+      </div>
+      <div class="set-row">
         <span>🔔</span>
         <span class="grow">提醒写日记<div class="s">每天到点本地通知（应用运行时生效，未运行不提醒）</div></span>
         <span class="switch" :class="{ on: reminder.enabled }" @click="toggleReminder"></span>
@@ -99,7 +104,24 @@ const ui = useUiStore()
 const dataDir = ref('')
 const version = ref('')
 const reminder = reactive({ enabled: false, time: '21:00' })
+const autostart = ref(false)
 const busy = ref(false)
+
+async function loadAutostart() {
+  const r = await window.api.app.autostart.get()
+  autostart.value = r.enabled
+}
+
+async function toggleAutostart() {
+  const next = !autostart.value
+  const r = await window.api.app.autostart.set(next)
+  if (r.ok) {
+    autostart.value = r.enabled
+    ui.showToast(r.enabled ? '将在开机时自动启动' : '已关闭开机启动')
+  } else {
+    ui.showToast('开发模式下不可用，安装打包版后生效')
+  }
+}
 
 async function loadReminder() {
   const r = await window.api.reminder.get()
@@ -174,6 +196,7 @@ onMounted(async () => {
   dataDir.value = await window.api.app.dataDir()
   version.value = await window.api.app.version()
   await loadReminder()
+  await loadAutostart()
 })
 </script>
 
