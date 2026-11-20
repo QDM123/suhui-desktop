@@ -34,25 +34,38 @@
         </div>
       </div>
 
-      <!-- 侧栏 -->
+      <!-- 侧栏：今天卡片在上，日期速览在下（隔离线分层） -->
       <div class="cal-side">
         <div class="card" style="padding:14px;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px;">📌 这一天</div>
-          <div v-if="dayEntries.length" style="font-size:12.5px;">
-            <div
-              v-for="e in dayEntries"
-              :key="e.id"
-              class="day-entry"
-              @click="jumpToEntry(e.id)"
-            >▸ {{ e.title }} <span style="color:var(--text-secondary)">{{ e.time }}</span></div>
-          </div>
-          <div v-else style="font-size:12.5px;color:var(--text-secondary)">点击左侧日期查看当日日记</div>
-        </div>
-        <div class="card" style="padding:14px;margin-top:12px;">
           <div style="font-size:13px;font-weight:700;margin-bottom:8px;">🌤️ 今天</div>
           <div style="font-size:12.5px;color:var(--text-secondary);line-height:2;">
             {{ weatherLabel }} · {{ todayKey }}<br>已有 {{ todayCount }} 篇日记
           </div>
+        </div>
+        <div class="card" style="padding:14px;margin-top:12px;">
+          <div class="day-head">
+            <span class="t">📅 {{ selectedLabel }}</span>
+            <span v-if="dayEntries.length" class="c">{{ dayEntries.length }} 篇</span>
+          </div>
+          <template v-if="cal.selectedDay">
+            <div v-if="dayEntries.length" style="font-size:12.5px;">
+              <div
+                v-for="e in dayEntries"
+                :key="e.id"
+                class="day-entry"
+                @click="jumpToEntry(e.id)"
+              >
+                <span class="tm">{{ e.time }}</span>
+                <span class="ti">{{ e.title }}</span>
+              </div>
+            </div>
+            <div v-else class="day-empty">
+              这一天还没有日记
+              <button v-if="cal.selectedDay <= todayKey" class="btn sm ghost" style="margin-top:8px;"
+                      @click="router.push({ path: '/write', query: { date: cal.selectedDay } })">补一篇</button>
+            </div>
+          </template>
+          <div v-else style="font-size:12.5px;color:var(--text-secondary)">点击左侧日期查看当日日记</div>
         </div>
       </div>
     </div>
@@ -91,6 +104,14 @@ const todayCount = computed(() => byDay.value.get(todayKey)?.length || 0)
 
 const prevLabel = computed(() => MONTH_CN[(cal.month + 11) % 12])
 const nextLabel = computed(() => MONTH_CN[(cal.month + 1) % 12])
+
+/* 选中日期的显示标题 */
+const selectedLabel = computed(() => {
+  const key = cal.selectedDay
+  if (!key) return '选择日期'
+  const d = new Date(key + 'T00:00:00')
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${WEEK_HEADERS[d.getDay()]}`
+})
 
 /* 月格子：含前后补位空格 */
 const cells = computed(() => {
@@ -153,6 +174,15 @@ async function loadMonth() {
   }
   byDay.value = map
   latestW.value = await window.api.diary.latestWeather()
+  /* 默认选中：当月含今天选今天，否则选当月第一个有日记的日子 */
+  if (!cal.selectedDay) {
+    if (y === Number(todayKey.slice(0, 4)) && m === Number(todayKey.slice(5, 7)) - 1) {
+      cal.selectedDay = todayKey
+    } else {
+      const firstHas = [...map.keys()].sort().find((k) => k.startsWith(`${y}-${pad2(m + 1)}`))
+      cal.selectedDay = firstHas || null
+    }
+  }
 }
 
 function prevMonth() {
@@ -214,10 +244,23 @@ onMounted(loadMonth)
 </script>
 
 <style>
+/* 左右分区 + 隔离线，界面分层 */
+.cal-wrap{gap:0;}
+.cal-side{width:280px;border-left:1.5px solid var(--line);padding-left:18px;}
 .cal-cell.sel{outline:2px solid var(--accent);outline-offset:-2px;}
+.day-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
+.day-head .t{font-size:13px;font-weight:700;}
+.day-head .c{font-size:11.5px;color:var(--text-secondary);}
 .day-entry{
-  padding:7px 0;border-bottom:1px dashed var(--line);cursor:pointer;
-  color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);
+  cursor:pointer;color:var(--accent);
 }
-.day-entry:hover{text-decoration:underline;}
+.day-entry:last-child{border-bottom:0;}
+.day-entry .tm{font-size:11.5px;color:var(--text-secondary);flex:none;padding-top:1px;}
+.day-entry .ti{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.day-entry:hover .ti{text-decoration:underline;}
+.day-empty{padding:18px 0;font-size:12.5px;color:var(--text-secondary);text-align:center;}
+/* 夜间适配微调 */
+[data-theme="night"] .cal-cell.tunnel{background:rgba(0,204,187,.10);}
+[data-theme="night"] .cal-ev{color:#7fe6dc;}
 </style>
