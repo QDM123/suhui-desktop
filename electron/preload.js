@@ -61,6 +61,13 @@ const api = {
     list: () => ipcRenderer.invoke('bin:list'),
     restore: (id) => ipcRenderer.invoke('bin:restore', id),
     purge: (id) => ipcRenderer.invoke('bin:purge', id)
+  },
+  export: {
+    run: (type, opts) => ipcRenderer.invoke('export:run', type, opts),
+    longImage: (entryId) => ipcRenderer.invoke('export:long-image', entryId),
+    history: () => ipcRenderer.invoke('export:history'),
+    deleteRecord: (id) => ipcRenderer.invoke('export:delete-record', id),
+    reveal: (p) => ipcRenderer.invoke('export:reveal', p)
   }
 }
 

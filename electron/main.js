@@ -7,6 +7,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell, protocol } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { initDb, getDb, getDao, paths } from './db'
+import { exportPdf, exportWord, exportLongImage, notifyDone } from './exporter.mjs'
 
 let mainWindow = null
 let closeConfirmed = false
@@ -194,6 +195,52 @@ ipcMain.handle('media:list-all', () => getDao().listAllMedia())
 ipcMain.handle('bin:list', () => getDao().listDeleted())
 ipcMain.handle('bin:restore', (_e, id) => getDao().restore(id))
 ipcMain.handle('bin:purge', (_e, id) => getDao().purge(id))
+
+/* ---------- 导出（Phase 7） ---------- */
+ipcMain.handle('export:run', async (_e, type, opts) => {
+  const dao = getDao()
+  const entries = dao.listForExport(opts || {})
+  if (!entries.length) return { ok: false, error: '没有符合条件的日记' }
+
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  const cfg = type === 'pdf'
+    ? { title: '导出 PDF', name: `溯洄日记-${stamp}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] }
+    : { title: '导出 Word', name: `溯洄日记-${stamp}.docx`, filters: [{ name: 'Word', extensions: ['docx'] }] }
+  const r = await dialog.showSaveDialog(mainWindow, {
+    title: cfg.title,
+    defaultPath: path.join(app.getPath('documents'), cfg.name),
+    filters: cfg.filters
+  })
+  if (r.canceled || !r.filePath) return { canceled: true }
+
+  const bufLen = type === 'pdf'
+    ? await exportPdf(entries, paths.mediaDir(), r.filePath)
+    : await exportWord(entries, paths.mediaDir(), r.filePath)
+  getDao().addExportFile(type, r.filePath, bufLen)
+  notifyDone(path.basename(r.filePath))
+  return { ok: true, path: r.filePath, size: bufLen }
+})
+
+ipcMain.handle('export:long-image', async (_e, entryId) => {
+  const data = getDao().getEntry(entryId)
+  if (!data) return { ok: false, error: '日记不存在' }
+  const e = { ...data.entry, tags: data.tags.map((t) => t.name), media: data.media }
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  const r = await dialog.showSaveDialog(mainWindow, {
+    title: '生成长图',
+    defaultPath: path.join(app.getPath('documents'), `日记长图-${e.title.slice(0, 12)}-${stamp}.png`),
+    filters: [{ name: 'PNG 图片', extensions: ['png'] }]
+  })
+  if (r.canceled || !r.filePath) return { canceled: true }
+  const bufLen = await exportLongImage(e, paths.mediaDir(), r.filePath)
+  getDao().addExportFile('image', r.filePath, bufLen)
+  notifyDone(path.basename(r.filePath))
+  return { ok: true, path: r.filePath, size: bufLen }
+})
+
+ipcMain.handle('export:history', () => getDao().listExportFiles())
+ipcMain.handle('export:delete-record', (_e, id) => getDao().deleteExportFile(id))
+ipcMain.handle('export:reveal', (_e, p) => { shell.showItemInFolder(p); return true })
 
 /* ---------- 分类/标签管理（Phase 3） ---------- */
 ipcMain.handle('category:create', (_e, name, color) => getDao().createCategory(name, color))

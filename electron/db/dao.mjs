@@ -334,6 +334,66 @@ export function createDao(db, mediaDir, opts = {}) {
     return { purged }
   }
 
+  /* ---------- 导出（Phase 7） ---------- */
+
+  /** 导出取数：按分类（多选，空=全部）+ 日期范围，时间正序，附标签与媒体 */
+  function listForExport({ categoryIds = [], fromDay = null, toDay = null } = {}) {
+    const conds = ['e.deleted = 0']
+    const params = []
+    if (categoryIds?.length) {
+      conds.push(`e.category_id IN (${categoryIds.map(() => '?').join(',')})`)
+      params.push(...categoryIds)
+    }
+    if (fromDay) { conds.push('e.day >= ?'); params.push(fromDay) }
+    if (toDay) { conds.push('e.day <= ?'); params.push(toDay) }
+    const rows = db.prepare(
+      `SELECT e.* FROM entries e WHERE ${conds.join(' AND ')}
+       ORDER BY e.occurred_at ASC, e.created_at ASC`
+    ).all(...params)
+    if (!rows.length) return []
+
+    const ids = rows.map((r) => r.id)
+    const inPh = ids.map(() => '?').join(',')
+    const mediaMap = new Map()
+    for (const m of db.prepare(
+      `SELECT * FROM media WHERE entry_id IN (${inPh}) ORDER BY sort, created_at`
+    ).all(...ids)) {
+      if (!mediaMap.has(m.entry_id)) mediaMap.set(m.entry_id, [])
+      mediaMap.get(m.entry_id).push(m)
+    }
+    const tagMap = new Map()
+    for (const t of db.prepare(
+      `SELECT et.entry_id, t.name FROM entry_tags et JOIN tags t ON t.id = et.tag_id
+       WHERE et.entry_id IN (${inPh}) ORDER BY t.name`
+    ).all(...ids)) {
+      if (!tagMap.has(t.entry_id)) tagMap.set(t.entry_id, [])
+      tagMap.get(t.entry_id).push(t.name)
+    }
+    return rows.map((e) => ({
+      ...e,
+      title: e.title || titlePreview(e),
+      tags: tagMap.get(e.id) || [],
+      media: mediaMap.get(e.id) || []
+    }))
+  }
+
+  function addExportFile(type, filePath, size) {
+    const r = db.prepare(
+      'INSERT INTO export_files (type, path, size, created_at) VALUES (?, ?, ?, ?)'
+    ).run(type, filePath, size, localDateTime())
+    return db.prepare('SELECT * FROM export_files WHERE id = ?').get(r.lastInsertRowid)
+  }
+
+  function listExportFiles() {
+    return db.prepare('SELECT * FROM export_files ORDER BY created_at DESC, id DESC').all()
+  }
+
+  /** 删除导出记录（不动已导出文件本身） */
+  function deleteExportFile(id) {
+    db.prepare('DELETE FROM export_files WHERE id = ?').run(id)
+    return { ok: true }
+  }
+
   /** 软删 → 回收站（Phase 2，报告 §3.2） */
   function softDelete(id) {
     const now = localDateTime()
@@ -508,6 +568,7 @@ export function createDao(db, mediaDir, opts = {}) {
     listEntries, searchEntries, softDelete,
     entriesInRange, latestWeather,
     listAllMedia, listDeleted, restore, purge, cleanupExpired,
+    listForExport, addExportFile, listExportFiles, deleteExportFile,
     createCategory, updateCategory, deleteCategory,
     renameTag, mergeTags, deleteTag,
     ensureDraft, patchEntry, setTags,

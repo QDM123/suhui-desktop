@@ -58,6 +58,7 @@
           <span class="sp" style="flex:1"></span>
           <button class="tool-btn" title="编辑" @click="edit">✏️</button>
           <button class="tool-btn" title="删除" @click="del">🗑️</button>
+          <button class="tool-btn" title="生成长图" @click="makeLongImage">🖼️</button>
         </div>
         <div class="paper" :class="app.night ? 'paper-5' : (readerEntry.background || 'paper-1')">
           <div class="meta">
@@ -200,6 +201,23 @@ async function del() {
 function lbMove(d) {
   const n = tl.reader.media.length
   lbIndex.value = (lbIndex.value + d + n) % n
+}
+
+const longBusy = ref(false)
+async function makeLongImage() {
+  if (longBusy.value) return
+  longBusy.value = true
+  ui.showToast('正在生成长图…')
+  try {
+    const r = await window.api.export.longImage(tl.selectedId)
+    if (r.canceled) ui.showToast('已取消')
+    else if (r.ok) ui.showToast('长图已生成')
+    else ui.showToast(r.error || '生成失败')
+  } catch (e) {
+    ui.showToast('生成失败：' + (e?.message || e))
+  } finally {
+    longBusy.value = false
+  }
 }
 </script>
 
