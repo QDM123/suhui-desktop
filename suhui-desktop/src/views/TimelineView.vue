@@ -4,14 +4,17 @@
     <div class="tl-list">
       <div class="tools">
         <div class="seg"><button :class="{ on: !tl.filterCat }" @click="tl.setFilter(tl.filterCat)">全部</button></div>
-        <div class="chip-row" style="flex:1">
+        <!-- 分类：按使用频率取前 4，··· 展开全部 -->
+        <div class="cat-bar">
           <span
-            v-for="c in tl.categories"
+            v-for="c in topCats"
             :key="c.id"
             class="chip"
             :class="{ on: tl.filterCat === c.id }"
+            :title="`${c.name} · ${c.entry_count} 篇`"
             @click="tl.setFilter(c.id)"
           ><i class="cat-dot" :style="{ background: c.color }"></i>{{ c.name }}</span>
+          <button v-if="sortedCats.length > 4" class="cat-more" title="全部分类" @click="showCats = true">···</button>
         </div>
         <button class="tool-btn" title="管理分类" style="font-size:13px" @click="router.push('/categories')">⚙</button>
       </div>
@@ -104,6 +107,22 @@
         @close="lbShow = false"
         @move="lbMove"
       />
+
+      <!-- 全部分类（···） -->
+      <Modal :visible="showCats" title="全部分类（按常用排序）" :buttons="[]" @close="showCats = false">
+        <div class="chip-row chip-lg" style="justify-content:center">
+          <span
+            v-for="c in sortedCats"
+            :key="c.id"
+            class="chip"
+            :class="{ on: tl.filterCat === c.id }"
+            @click="tl.setFilter(c.id); showCats = false"
+          ><i class="cat-dot" :style="{ background: c.color }"></i>{{ c.name }}<em> {{ c.entry_count }}</em></span>
+        </div>
+        <div class="modal-ok">
+          <button class="btn sm ghost" @click="showCats = false; router.push('/categories')">管理分类</button>
+        </div>
+      </Modal>
     </div>
   </div>
 </template>
@@ -117,6 +136,7 @@ import { useAppStore } from '../stores/app'
 import { usePaperStore } from '../stores/papers'
 import { WEEK_CN, weatherOf, moodOf } from '../constants'
 import Lightbox from '../components/Lightbox.vue'
+import Modal from '../components/Modal.vue'
 
 const router = useRouter()
 const tl = useTimelineStore()
@@ -126,6 +146,20 @@ const ps = usePaperStore()
 
 const lbShow = ref(false)
 const lbIndex = ref(0)
+const showCats = ref(false)
+
+/* 分类排序：常用（日记多）在前，同数按管理顺序；横排最多 4 个（当前选中始终可见） */
+const sortedCats = computed(() =>
+  [...tl.categories].sort((a, b) => (b.entry_count - a.entry_count) || (a.sort - b.sort))
+)
+const topCats = computed(() => {
+  const top = sortedCats.value.slice(0, 4)
+  if (tl.filterCat && !top.some((c) => c.id === tl.filterCat)) {
+    const active = sortedCats.value.find((c) => c.id === tl.filterCat)
+    if (active) top[top.length - 1] = active
+  }
+  return top
+})
 
 const readerEntry = computed(() => tl.reader?.entry || null)
 /* 信纸解析与编辑器同规则：夜间内置→paper-5，自定义保持 */
@@ -246,4 +280,15 @@ async function makeLongImage() {
 .r-imgs img:hover{transform:scale(1.03);}
 .tag-link{cursor:pointer;color:var(--accent);}
 .tag-link:hover{text-decoration:underline;}
+/* 分类横排（淘宝式） */
+.cat-bar{flex:1;display:flex;gap:7px;align-items:center;overflow:hidden;min-width:0;}
+.cat-bar .chip{flex:none;}
+.cat-more{
+  border:1px solid var(--line);background:var(--card);color:var(--text-secondary);
+  border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer;flex:none;letter-spacing:1px;
+}
+.cat-more:hover{border-color:var(--accent);color:var(--accent);}
+.chip-lg .chip{padding:9px 18px;font-size:13.5px;}
+.chip-lg .chip em{font-style:normal;font-size:11px;color:var(--text-secondary);margin-left:2px;}
+.modal-ok{text-align:center;margin-top:16px;}
 </style>
