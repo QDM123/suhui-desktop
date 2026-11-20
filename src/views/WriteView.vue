@@ -107,7 +107,7 @@
     </Modal>
 
     <!-- 天气 -->
-    <Modal :visible="show.weather" title="今天天气" @close="show.weather = false">
+    <Modal :visible="show.weather" title="今天天气" :buttons="[]" @close="show.weather = false">
       <div class="chip-row" style="justify-content:center">
         <span v-for="w in WEATHERS" :key="w.id" class="chip" :class="{ on: ed.fields.weather === w.id }"
               @click="ed.setField('weather', w.id); show.weather = false">{{ w.icon }} {{ w.name }}</span>
@@ -115,7 +115,7 @@
     </Modal>
 
     <!-- 心情 -->
-    <Modal :visible="show.mood" title="此刻心情" @close="show.mood = false">
+    <Modal :visible="show.mood" title="此刻心情" :buttons="[]" @close="show.mood = false">
       <div class="mood-row">
         <span v-for="(m, i) in MOODS" :key="i" class="mood-item" :class="{ on: ed.fields.mood === i }"
               @click="ed.setField('mood', i); show.mood = false">{{ m }}</span>
@@ -124,12 +124,12 @@
       </div>
     </Modal>
 
-    <!-- 分类（单选） -->
-    <Modal :visible="show.category" title="选择分类（单选）" @close="show.category = false">
-      <div class="chip-row" style="justify-content:center">
+    <!-- 分类（单选，点选即生效并关闭） -->
+    <Modal :visible="show.category" title="选择分类（单选）" :buttons="[]" @close="show.category = false">
+      <div class="chip-row chip-lg" style="justify-content:center">
         <span v-for="c in categories" :key="c.id" class="chip" :class="{ on: ed.fields.category_id === c.id }"
               @click="ed.setField('category_id', c.id); show.category = false">
-          <i class="cat-dot" :style="{ background: c.color }"></i>{{ c.name }}
+          <i class="cat-dot" :style="{ background: c.color }"></i>{{ c.name }}<em v-if="c.entry_count"> {{ c.entry_count }}</em>
         </span>
       </div>
     </Modal>
@@ -444,6 +444,8 @@ async function done() {
   background:var(--card);color:var(--text-main);outline:none;width:160px;
 }
 .modal-ok{text-align:center;margin-top:16px;}
+.chip-lg .chip{padding:9px 18px;font-size:13.5px;}
+.chip-lg .chip em{font-style:normal;font-size:11px;color:var(--text-secondary);margin-left:2px;}
 .addr-input{
   width:100%;border:1px solid var(--line);border-radius:6px;padding:7px 10px;font-size:13px;
   background:var(--card);color:var(--text-main);outline:none;
