@@ -8,7 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { runMigrations } from '../electron/db/migrate.mjs'
-import { createDao, localDay } from '../electron/db/dao.mjs'
+import { createDao, localDay, localDateTime } from '../electron/db/dao.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -180,6 +180,34 @@ ok(rng.every((x) => x.title && x.time), '条目含标题占位与时间')
 ok(dao2.latestWeather() === 1 || dao2.latestWeather() === null || Number.isInteger(dao2.latestWeather()), 'latestWeather 返回枚举/空')
 const withW = dao2.ensureDraft({ weather: 7 })
 ok(dao2.latestWeather() === 7, 'latestWeather 取最近一篇')
+
+console.log('\n[13] Phase 5：相册 / 回收站 / 30 天清理')
+const pId = dao2.ensureDraft({ title: '相册测试', content: '带图的日记' }).id
+dao2.addMediaBuffer(pId, 'a1.png', PNG_1PX)
+dao2.addMediaBuffer(pId, 'a2.png', PNG_1PX)
+ok(dao2.listAllMedia().some((m) => m.entry_id === pId), '相册自动汇集新日记媒体')
+dao2.softDelete(pId)
+ok(!dao2.listAllMedia().some((m) => m.entry_id === pId), '删除日记后图片从相册消失')
+const delRow = dao2.listDeleted().find((x) => x.id === pId)
+ok(!!delRow && delRow.contentLen === '带图的日记'.length, '回收站列表含字数')
+ok(dao2.restore(pId).ok && !dao2.listDeleted().some((x) => x.id === pId), '恢复成功移出回收站')
+const oldId = dao2.ensureDraft({ title: '过期的' }).id
+dao2.softDelete(oldId)
+db.prepare('UPDATE entries SET deleted_at = ? WHERE id = ?')
+  .run(localDateTime(new Date(Date.now() - 32 * 86400000)), oldId)
+const keepId = dao2.ensureDraft({ title: '五天前的' }).id
+dao2.softDelete(keepId)
+db.prepare('UPDATE entries SET deleted_at = ? WHERE id = ?')
+  .run(localDateTime(new Date(Date.now() - 5 * 86400000)), keepId)
+const cl = dao2.cleanupExpired()
+ok(cl.purged >= 1 && !dao2.getEntry(oldId), '超 30 天启动清理')
+ok(dao2.getEntry(keepId) && dao2.listDeleted().some((x) => x.id === keepId), '30 天内不清理')
+const firstMedia = dao2.getEntry(pId).media[0]
+const fp = path.join(mediaDir, firstMedia.file_name)
+ok(fs.existsSync(fp), '媒体文件在盘')
+dao2.softDelete(pId)
+const pg = dao2.purge(pId)
+ok(pg.ok && !dao2.getEntry(pId) && !fs.existsSync(fp), '彻底删除：记录与文件全清')
 
 console.log(`\n结果：${passed} 通过，${failed} 失败`)
 db.close()

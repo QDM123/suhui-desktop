@@ -53,7 +53,13 @@ const api = {
     pickAndAdd: (entryId) => ipcRenderer.invoke('media:pick-and-add', entryId),
     addBuffer: (entryId, name, buf) =>
       ipcRenderer.invoke('media:add-buffer', entryId, name, buf),
-    remove: (id) => ipcRenderer.invoke('media:remove', id)
+    remove: (id) => ipcRenderer.invoke('media:remove', id),
+    listAll: () => ipcRenderer.invoke('media:list-all')
+  },
+  bin: {
+    list: () => ipcRenderer.invoke('bin:list'),
+    restore: (id) => ipcRenderer.invoke('bin:restore', id),
+    purge: (id) => ipcRenderer.invoke('bin:purge', id)
   }
 }
 
