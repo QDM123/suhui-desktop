@@ -12,7 +12,9 @@
     "test:dao": "node scripts/dao-smoke.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^13.2.0"
+    "adm-zip": "^0.6.1",
+    "better-sqlite3": "^13.2.0",
+    "docx": "^9.16.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
