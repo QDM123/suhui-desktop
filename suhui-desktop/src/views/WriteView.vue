@@ -122,6 +122,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useEditorStore } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
 import { useAppStore } from '../stores/app'
+import { useTimelineStore } from '../stores/timeline'
 import { WEATHERS, MOODS, PAPERS, weatherOf, moodOf, fmtDay, fmtClock, DAILY_LIMIT } from '../constants'
 import Modal from '../components/Modal.vue'
 
@@ -130,6 +131,7 @@ const router = useRouter()
 const ed = useEditorStore()
 const ui = useUiStore()
 const app = useAppStore()
+const tl = useTimelineStore()
 
 const show = reactive({ weather: false, mood: false, category: false, tags: false, address: false })
 const categories = ref([])
@@ -273,6 +275,7 @@ async function done() {
     if (!ok2) { ui.showToast('仍未保存成功，请检查后重试'); return }
   }
   app.loadStats()
+  if (ed.entryId) tl.pendingSelectId = ed.entryId
   router.push('/timeline')
 }
 </script>
