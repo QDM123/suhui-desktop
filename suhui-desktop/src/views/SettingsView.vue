@@ -40,8 +40,13 @@
     <div class="set-group">
       <div class="set-row">
         <span>🔔</span>
-        <span class="grow">提醒写日记<div class="s">本地定时提醒（Phase 8 实装，当前为占位）</div></span>
-        <span class="switch" style="opacity:.4;cursor:not-allowed"></span>
+        <span class="grow">提醒写日记<div class="s">每天到点本地通知（应用运行时生效，未运行不提醒）</div></span>
+        <span class="switch" :class="{ on: reminder.enabled }" @click="toggleReminder"></span>
+      </div>
+      <div v-if="reminder.enabled" class="set-row">
+        <span>⏰</span>
+        <span class="grow">提醒时间<div class="s">今天没有日记时才会提醒</div></span>
+        <input type="time" :value="reminder.time" @change="setReminderTime($event.target.value)">
       </div>
     </div>
 
@@ -52,6 +57,16 @@
         <span>📂</span>
         <span class="grow">数据目录<div class="s">{{ dataDir || '…' }}</div></span>
         <button class="btn sm plain" @click="openDataDir">打开目录</button>
+      </div>
+      <div class="set-row">
+        <span>💾</span>
+        <span class="grow">备份<div class="s">数据库 + 全部照片打包为 zip；每日首次启动自动快照（保留最近 7 份）</div></span>
+        <button class="btn sm" :disabled="busy" @click="createBackup">立即备份</button>
+      </div>
+      <div class="set-row">
+        <span>♻️</span>
+        <span class="grow">从备份恢复<div class="s">选择备份 zip，覆盖当前全部数据后自动重启</div></span>
+        <button class="btn sm ghost" :disabled="busy" @click="pickBackup">选择备份…</button>
       </div>
     </div>
 
@@ -68,22 +83,99 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
+import { useUiStore } from '../stores/ui'
 import { THEMES } from '../constants'
 
 const router = useRouter()
 const app = useAppStore()
+const ui = useUiStore()
 const dataDir = ref('')
 const version = ref('')
+const reminder = reactive({ enabled: false, time: '21:00' })
+const busy = ref(false)
 
-onMounted(async () => {
-  dataDir.value = await window.api.app.dataDir()
-  version.value = await window.api.app.version()
-})
+async function loadReminder() {
+  const r = await window.api.reminder.get()
+  reminder.enabled = r.enabled
+  reminder.time = r.time
+}
+
+async function toggleReminder() {
+  const next = !reminder.enabled
+  if (next) {
+    const r = await window.api.reminder.set({ enabled: true, time: reminder.time })
+    if (r.ok) reminder.enabled = true
+  } else {
+    await window.api.reminder.set({ enabled: false, time: reminder.time })
+    reminder.enabled = false
+  }
+}
+
+async function setReminderTime(t) {
+  if (!t) return
+  reminder.time = t
+  const r = await window.api.reminder.set({ enabled: reminder.enabled, time: t })
+  if (r.ok) ui.showToast('提醒时间已设为 ' + t)
+}
+
+async function createBackup() {
+  if (busy.value) return
+  busy.value = true
+  ui.showToast('正在备份…')
+  try {
+    const r = await window.api.backup.create()
+    if (r.canceled) ui.showToast('已取消')
+    else if (r.ok) ui.showToast('备份完成：' + r.path.split(/[\\/]/).pop())
+    else ui.showToast(r.error || '备份失败')
+  } catch (e) {
+    ui.showToast('备份失败：' + (e?.message || e))
+  } finally {
+    busy.value = false
+  }
+}
+
+async function pickBackup() {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const r = await window.api.backup.pick()
+    if (r.canceled) return
+    if (!r.ok) {
+      ui.askConfirm({ title: '备份无效', body: r.error, cancelText: '关闭' })
+      return
+    }
+    const okAsk = await ui.askConfirm({
+      title: '恢复备份',
+      body: `该备份包含 ${r.entries} 篇日记、${r.media} 条照片记录。\n\n恢复将覆盖当前全部数据，确定吗？`,
+      confirmText: '恢复',
+      danger: true
+    })
+    if (!okAsk) return
+    ui.showToast('正在恢复，应用即将重启…')
+    await new Promise((res) => setTimeout(res, 600))
+    await window.api.backup.restore(r.path)
+  } finally {
+    busy.value = false
+  }
+}
 
 function openDataDir() {
   window.api.app.openDataDir()
 }
+
+onMounted(async () => {
+  dataDir.value = await window.api.app.dataDir()
+  version.value = await window.api.app.version()
+  await loadReminder()
+})
 </script>
+
+<style>
+.set-row input[type="time"]{
+  border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12.5px;
+  background:var(--card);color:var(--text-main);outline:none;
+}
+</style>

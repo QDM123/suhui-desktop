@@ -24,7 +24,20 @@ const api = {
     onBeforeClose: (cb) => {
       ipcRenderer.on('app:before-close', () => cb())
     },
-    confirmClose: () => ipcRenderer.send('app:confirm-close')
+    confirmClose: () => ipcRenderer.send('app:confirm-close'),
+    /* 提醒通知点击 → 进入写日记（Phase 8） */
+    onOpenWrite: (cb) => {
+      ipcRenderer.on('app:open-write', () => cb())
+    }
+  },
+  reminder: {
+    get: () => ipcRenderer.invoke('reminder:get'),
+    set: (opts) => ipcRenderer.invoke('reminder:set', opts)
+  },
+  backup: {
+    create: () => ipcRenderer.invoke('backup:create'),
+    pick: () => ipcRenderer.invoke('backup:pick'),
+    restore: (zipPath) => ipcRenderer.invoke('backup:restore', zipPath)
   },
   diary: {
     ensureDraft: (init) => ipcRenderer.invoke('diary:ensure-draft', init),

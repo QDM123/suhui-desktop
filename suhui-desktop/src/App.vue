@@ -15,6 +15,7 @@
 
 <script setup>
 import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAppStore } from './stores/app'
 import { useEditorStore } from './stores/editor'
 import { useUiStore } from './stores/ui'
@@ -25,10 +26,16 @@ import StatusBar from './components/StatusBar.vue'
 import ToastHost from './components/ToastHost.vue'
 
 const app = useAppStore()
+const router = useRouter()
 
 onMounted(() => {
   app.loadSettings()
   app.loadStats()
+
+  /* 提醒通知点击 → 进入写日记（Phase 8） */
+  window.api.app.onOpenWrite(() => {
+    router.push('/write')
+  })
 
   /* 关窗守卫（计划 §2.3）：主进程拦截 close → 通知这里 flush → 确认后才真正关闭 */
   window.api.app.onBeforeClose(async () => {
