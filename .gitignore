@@ -1,0 +1,6 @@
+# 临时产物
+.screenshots/
+
+# Node 兜底（子项目各自已有 .gitignore）
+node_modules/
+*.log
