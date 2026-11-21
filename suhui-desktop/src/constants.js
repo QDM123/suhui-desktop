@@ -47,5 +47,3 @@ export const fmtTime = (d = new Date()) =>
 export const fmtClock = (d = new Date()) =>
   `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 
-/** 每日新增上限（报告 §3.5 实证值，主进程同源校验） */
-export const DAILY_LIMIT = 150

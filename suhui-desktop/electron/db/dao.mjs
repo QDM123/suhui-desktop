@@ -25,8 +25,7 @@ export function parseDayTime(day, time) {
 
 export const IMG_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'])
 
-/** 计划 §3.5：每日新增上限 150 篇 */
-const DAILY_LIMIT_DEFAULT = 150
+/** 每日新增上限：已按用户决定移除 */
 
 /** patch 白名单（安全：渲染进程只能改这些列） */
 const PATCHABLE = new Set([
@@ -35,7 +34,6 @@ const PATCHABLE = new Set([
 ])
 
 export function createDao(db, mediaDir, opts = {}) {
-  const dailyLimit = opts.dailyLimit ?? DAILY_LIMIT_DEFAULT
   const getDims = opts.getDims || (() => ({ width: 0, height: 0 }))
 
   /* ---------- 读取 ---------- */
@@ -363,7 +361,9 @@ export function createDao(db, mediaDir, opts = {}) {
     if (fromDay) { conds.push('e.day >= ?'); params.push(fromDay) }
     if (toDay) { conds.push('e.day <= ?'); params.push(toDay) }
     const rows = db.prepare(
-      `SELECT e.* FROM entries e WHERE ${conds.join(' AND ')}
+      `SELECT e.*, c.name AS category_name FROM entries e
+       LEFT JOIN categories c ON c.id = e.category_id
+       WHERE ${conds.join(' AND ')}
        ORDER BY e.occurred_at ASC, e.created_at ASC`
     ).all(...params)
     if (!rows.length) return []
@@ -460,16 +460,6 @@ export function createDao(db, mediaDir, opts = {}) {
    * 新建日记记录（编辑器首次任意变更时调用，计划 §2.3「新建即落点」）
    */
   const ensureDraft = db.transaction((init = {}) => {
-    const today = localDay()
-    const cnt = db.prepare(
-      'SELECT COUNT(*) AS c FROM entries WHERE substr(created_at, 1, 10) = ?'
-    ).get(today).c
-    if (cnt >= dailyLimit) {
-      const err = new Error('每日新增日记超过150篇限制')
-      err.code = 'DAILY_LIMIT'
-      throw err
-    }
-
     const dt = parseDayTime(init.occurredDay, init.occurredTime) || new Date()
     const now = localDateTime()
     const id = randomUUID()
@@ -613,10 +603,10 @@ export function createDao(db, mediaDir, opts = {}) {
     listAllMedia, listDeleted, restore, purge, cleanupExpired,
     listForExport, addExportFile, listExportFiles, deleteExportFile,
     listPapers, addPaper, deletePaper, getPaperFile,
-    createCategory, updateCategory, deleteCategory,
+    createCategory, updateCategory, deleteCategory, reorderCategories,
     renameTag, mergeTags, deleteTag,
     ensureDraft, patchEntry, setTags,
     addMediaFile, addMediaBuffer, removeMedia,
-    titlePreview, dailyLimit
+    titlePreview
   }
 }

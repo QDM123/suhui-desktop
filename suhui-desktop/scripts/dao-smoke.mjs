@@ -37,7 +37,7 @@ ok(db.prepare('SELECT COUNT(*) c FROM categories').get().c === 4, '预置 4 个�
 ok(!!db.prepare("SELECT name FROM sqlite_master WHERE name='entries'").get(), 'entries 表存在')
 ok(!!db.prepare("SELECT name FROM sqlite_master WHERE name='media'").get(), 'media 表存在')
 
-const dao = createDao(db, mediaDir, { dailyLimit: 3 })
+const dao = createDao(db, mediaDir)
 console.log('\n[2] ensureDraft / 派生字段')
 const { id } = dao.ensureDraft({
   title: '测试', content: '第一行\n第二行', occurredDay: '2026-11-01', occurredTime: '09:30',
@@ -94,10 +94,10 @@ dao.ensureDraft({ address: '公司' })
 const addr = dao.recentAddresses()
 ok(addr.includes('公司') && addr.includes('家里'), '最近地址去重汇集')
 
-console.log('\n[7] 每日上限（dailyLimit=3，当前已建 3 篇今日条目）')
-let limited = false
-try { dao.ensureDraft({}) } catch (e) { limited = e.code === 'DAILY_LIMIT' && e.message === '每日新增日记超过150篇限制' }
-ok(limited, '超限抛出实证文案')
+console.log('\n[7] 每日篇数（已移除每日上限）')
+dao.ensureDraft({ title: '今日第三篇' })
+dao.ensureDraft({ title: '今日第四篇' })
+ok(dao.countToday() >= 4, '同日连续多篇无上限')
 
 console.log('\n[8] Phase 2：时间轴列表 / 软删')
 const before = dao.listEntries().length
@@ -113,7 +113,7 @@ ok(dao.getEntry(id).entry.deleted === 1, 'deleted=1 落库（回收站可恢复�
 ok(!dao.softDelete(id).ok, '重复软删返回 false')
 
 console.log('\n[9] Phase 3：搜索（FTS5 trigram + LIKE 兜底）')
-const dao2 = createDao(db, mediaDir, { dailyLimit: 999 })
+const dao2 = createDao(db, mediaDir)
 const sA = dao2.ensureDraft({ title: '海边旅行记', content: '今天去了海边，浪花很美，心情舒畅。' }).id
 dao2.setTags(sA, ['大海'])
 const sB = dao2.ensureDraft({ title: '工作笔记', content: '开会讨论了项目排期。', category_id: 2 }).id
@@ -143,6 +143,12 @@ ok(blockedCat, '默认分类不可删除')
 const delCat = dao2.deleteCategory(nc.id)
 ok(delCat.moved === 1, '删除非空分类返回移动数')
 ok(dao2.getEntry(sA).entry.category_id === 1, '其日记归入「生活」')
+const beforeOrder = dao2.listCategories().map((c) => c.id)
+dao2.reorderCategories([...beforeOrder].reverse())
+ok(
+  dao2.listCategories().map((c) => c.id).join() === [...beforeOrder].reverse().join(),
+  '拖拽排序落库并影响列表顺序'
+)
 
 console.log('\n[11] Phase 3：标签管理')
 dao2.setTags(sA, ['大海', '旅行'])
