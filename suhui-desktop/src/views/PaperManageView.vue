@@ -1,7 +1,7 @@
 <template>
   <div class="view" style="max-width:640px;margin:0 auto;width:100%;">
     <div class="view-head">
-      <button class="tool-btn" title="返回" @click="router.push('/settings')">‹</button>
+      <button class="tool-btn" title="返回" @click="back">‹</button>
       <h1>信纸 DIY</h1>
       <span class="sub">上传图片或参数生成自定义信纸，编辑日记时可选</span>
     </div>
@@ -61,6 +61,9 @@ import { useUiStore } from '../stores/ui'
 import { BUILTIN_PAPERS } from '../constants'
 
 const router = useRouter()
+
+/* 从哪进入回哪：无来源时回设置 */
+function back() { router.push(router.options.history.state.back || '/settings') }
 const ps = usePaperStore()
 const ui = useUiStore()
 

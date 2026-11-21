@@ -190,7 +190,10 @@ export const useEditorStore = defineStore('editor', {
 
     async applyTags(names) {
       const id = await this.ensureEntry()
-      const r = await window.api.diary.setTags(id, names)
+      /* ref/reactive 数组是 Proxy，IPC structured clone 无法序列化，
+         必须先转成普通数组（元素为字符串） */
+      const list = Array.from(names, String)
+      const r = await window.api.diary.setTags(id, list)
       this.tags = r.tags.map((t) => t.name)
       this.rev = r.rev
     },

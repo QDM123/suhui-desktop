@@ -100,15 +100,14 @@ async function persistOrder() {
   ui.showToast('显示顺序已保存')
 }
 
-const backFrom = ref('/timeline')
-function back() { router.push(backFrom.value) }
+/* 从哪进入回哪：优先取路由来源；无来源（如刷新后直落本页）回时间轴 */
+function back() { router.push(router.options.history.state.back || '/timeline') }
 
 async function load() {
   list.value = await window.api.category.list()
 }
 
 onMounted(async () => {
-  backFrom.value = router.options.history.state.back === '/timeline' ? '/timeline' : '/timeline'
   await load()
 })
 

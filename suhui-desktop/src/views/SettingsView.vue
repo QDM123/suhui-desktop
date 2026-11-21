@@ -87,6 +87,10 @@
     <!-- 自动备份 -->
     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;letter-spacing:1px;">自动备份</div>
     <div class="set-group">
+      <div class="set-row" style="cursor:pointer" @click="router.push('/backups')">
+        <span>🗂</span><span class="grow">备份管理<div class="s">查看 / 恢复 / 删除已有备份，最新一份始终受保护</div></span>
+        <span style="color:var(--text-secondary)">›</span>
+      </div>
       <div class="set-row">
         <span>📁</span>
         <span class="grow">备份目录<div class="s">{{ bk.effectiveDir || '…' }}<template v-if="!bk.dir">（默认）</template></div></span>
@@ -127,8 +131,28 @@
     <div class="set-group">
       <div class="set-row"><span>📖</span><span class="grow">溯洄 · 桌面版<div class="s">个人本地日记应用</div></span><span style="color:var(--text-secondary)">v{{ version }}</span></div>
       <div class="set-row" style="cursor:default">
+        <span>💻</span>
+        <span class="grow">系统环境<div class="s">{{ sysinfo.os }} · {{ sysinfo.arch }}</div></span>
+        <span style="color:var(--text-secondary)">{{ sysinfo.installType }}</span>
+      </div>
+      <div class="set-row" style="cursor:default">
         <span>🧭</span>
         <span class="grow">规格说明<div class="s">交互规格参考公开行为研究（个人学习用途），界面与素材均为独立实现</div></span>
+      </div>
+    </div>
+
+    <!-- 快捷键 -->
+    <div style="font-size:12px;color:var(--text-secondary);margin:14px 0 8px;letter-spacing:1px;">快捷键</div>
+    <div class="set-group">
+      <div class="set-row" style="cursor:pointer" @click="router.push('/shortcuts')">
+        <span>⌨️</span>
+        <span class="grow">快捷键中心<div class="s">全部快捷键集中说明，与按键行为同源维护</div></span>
+        <span style="color:var(--text-secondary)">›</span>
+      </div>
+      <div class="set-row" style="cursor:default">
+        <span>💡</span>
+        <span class="grow">随时速查<div class="s">任意页面按 F1 或 ? 呼出快捷键速查面板</div></span>
+        <span style="color:var(--text-secondary)"><span class="kbd">F1</span> <span class="kbd">?</span></span>
       </div>
     </div>
   </div>
@@ -146,6 +170,8 @@ const app = useAppStore()
 const ui = useUiStore()
 const dataDir = ref('')
 const version = ref('')
+const sysinfo = reactive({ os: '', arch: '', installType: '' })
+
 const reminder = reactive({ enabled: false, time: '21:00' })
 const autostart = ref(false)
 const busy = ref(false)
@@ -311,6 +337,7 @@ function openDataDir() {
 onMounted(async () => {
   dataDir.value = await window.api.app.dataDir()
   version.value = await window.api.app.version()
+  Object.assign(sysinfo, await window.api.app.sysinfo())
   await loadReminder()
   await loadAutostart()
   await loadBk()

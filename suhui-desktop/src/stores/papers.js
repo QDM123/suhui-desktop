@@ -6,19 +6,37 @@
    ============================================================ */
 import { defineStore } from 'pinia'
 
-function genStyle(cfg) {
+function genStyle(cfg, forText = false) {
   const c = cfg || {}
   const patternColor = c.patternColor || 'rgba(0,150,140,.16)'
+
+  /* 文字层模式（编辑器 / 阅读区）：容器只留底色，图案通过 CSS 变量
+     交给正文元素绘制（32px 节奏随内容滚动，横线与文字永不错位） */
+  if (forText) {
+    const style = { backgroundColor: c.base || '#fffdf8' }
+    if (c.pattern === 'lines') {
+      style['--paper-line'] = patternColor
+    } else if (c.pattern === 'dots') {
+      style['--paper-bg'] = `radial-gradient(${patternColor} 1.2px, transparent 1.2px)`
+      style['--paper-bg-size'] = '18px 18px'
+    } else if (c.pattern === 'grid') {
+      style['--paper-line'] = patternColor
+      style['--paper-bg'] = `repeating-linear-gradient(90deg, transparent, transparent 31px, ${patternColor} 31px 32px)`
+    }
+    return style
+  }
+
+  /* 完整图案模式（缩略图 / 预览） */
   const style = { backgroundColor: c.base || '#fffdf8', backgroundImage: 'none' }
   if (c.pattern === 'lines') {
-    style.backgroundImage = `repeating-linear-gradient(transparent, transparent 27px, ${patternColor} 27px 28px)`
+    style.backgroundImage = `repeating-linear-gradient(transparent, transparent 31px, ${patternColor} 31px 32px)`
   } else if (c.pattern === 'dots') {
     style.backgroundImage = `radial-gradient(${patternColor} 1.2px, transparent 1.2px)`
     style.backgroundSize = '18px 18px'
   } else if (c.pattern === 'grid') {
     style.backgroundImage =
-      `repeating-linear-gradient(0deg, transparent, transparent 27px, ${patternColor} 27px 28px),` +
-      `repeating-linear-gradient(90deg, transparent, transparent 27px, ${patternColor} 27px 28px)`
+      `repeating-linear-gradient(0deg, transparent, transparent 31px, ${patternColor} 31px 32px),` +
+      `repeating-linear-gradient(90deg, transparent, transparent 31px, ${patternColor} 31px 32px)`
   }
   return style
 }
@@ -47,8 +65,9 @@ export const usePaperStore = defineStore('papers', {
       this.customs = await window.api.papers.list()
       this.loaded = true
     },
-    /** background 值 → { cls, style }；自定义缺失时回退 paper-1 */
-    resolve(bg) {
+    /** background 值 → { cls, style }；自定义缺失时回退 paper-1
+        forText=true 为文字层模式（编辑器/阅读区，图案交正文画，防滚动错位） */
+    resolve(bg, forText = false) {
       if (!bg) return { cls: 'paper-1', style: null }
       if (!bg.startsWith('custom:')) return { cls: bg, style: null }
       const c = this.customs.find((x) => x.id === bg.slice(7))
@@ -63,7 +82,7 @@ export const usePaperStore = defineStore('papers', {
           }
         }
       }
-      return { cls: '', style: genStyle(c.config) }
+      return { cls: '', style: genStyle(c.config, forText) }
     },
     /** 供“全部信纸”弹窗 / 管理页的缩略图预览 */
     preview(bg) {

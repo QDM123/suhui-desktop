@@ -20,8 +20,22 @@ function stamp() {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
 }
 
-/** 生成 zip 到 destPath：db 一致性快照 + media 原文件 */
+/* 备份串行锁：所有备份入口（每日快照 / 定时 / 退出 / 手动 / IPC）共用一个队列，
+   任何时刻只有一个备份在执行 —— 避免并发抢 backup-tmp.db 触发 Windows EPERM。
+   队列吞掉前一个任务的错误，保证后续排队者照常执行 */
+let backupQueue = Promise.resolve()
+function serialized(task) {
+  const run = backupQueue.then(task)
+  backupQueue = run.then(() => {}, () => {})
+  return run
+}
+
+/** 生成 zip 到 destPath：db 一致性快照 + media 原文件（串行执行） */
 export async function createBackupZip(destPath) {
+  return serialized(() => doCreateBackupZip(destPath))
+}
+
+async function doCreateBackupZip(destPath) {
   const tmpDb = path.join(app.getPath('userData'), 'backup-tmp.db')
   try { fs.rmSync(tmpDb, { force: true }) } catch { /* ignore */ }
   await getDb().backup(tmpDb) // SQLite backup API：WAL 下也能拿到一致快照
@@ -75,6 +89,49 @@ export async function autoBackup(targetDir, keep = 7) {
     try { fs.rmSync(path.join(targetDir, f), { force: true }) } catch { /* ignore */ }
   }
   return { file: path.basename(dest), size }
+}
+
+/* ---------- 备份管理中心（列表 / 立即备份 / 删除，Phase 9 追加） ---------- */
+
+const MANUAL_PREFIX = 'suhui-backup-'
+
+/** 列出目录内全部备份（快照 / 自动 / 手动三类前缀），按时间倒序 */
+export function listBackups(dir) {
+  if (!fs.existsSync(dir)) return []
+  return fs.readdirSync(dir)
+    .filter((f) => f.endsWith('.zip') &&
+      (f.startsWith(SNAP_PREFIX) || f.startsWith(AUTO_PREFIX) || f.startsWith(MANUAL_PREFIX)))
+    .map((f) => {
+      const full = path.join(dir, f)
+      const st = fs.statSync(full)
+      const type = f.startsWith(SNAP_PREFIX) ? 'snapshot'
+        : f.startsWith(AUTO_PREFIX) ? 'auto' : 'manual'
+      return { file: f, path: full, type, mtime: st.mtimeMs, size: st.size }
+    })
+    .sort((a, b) => b.mtime - a.mtime)
+}
+
+/** 立即在备份目录创建一份手动备份（管理中心「立即备份」） */
+export async function backupNow(dir) {
+  fs.mkdirSync(dir, { recursive: true })
+  const dest = path.join(dir, `${MANUAL_PREFIX}${stamp()}.zip`)
+  const size = await createBackupZip(dest)
+  return { file: path.basename(dest), size }
+}
+
+/**
+ * 删除一份备份 —— 锁最新保底：列表中最新的那份不可删，
+ * 保证任何时刻至少有一份可恢复的备份在档（下一次备份成功后旧份自然解锁）
+ */
+export function deleteBackup(dir, file) {
+  const list = listBackups(dir)
+  const target = list.find((b) => b.file === file)
+  if (!target) return { ok: false, error: '备份不存在，列表可能已变化' }
+  if (list[0].file === file) {
+    return { ok: false, error: '最新一份备份受保护：完成下一次备份后，它将自动解锁' }
+  }
+  fs.rmSync(target.path, { force: true })
+  return { ok: true }
 }
 
 export function validateBackup(zipPath) {
