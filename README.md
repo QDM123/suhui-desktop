@@ -6,6 +6,17 @@
 
 「溯洄」取自《诗经·蒹葭》："溯洄从之，道阻且长。"写日记，就是沿时间的河流往回走，把沉入隧道的日子找回来。
 
+## 应用预览
+
+<p align="center">
+  <img src="docs/screenshots/write.png" alt="写日记" width="49%">
+  <img src="docs/screenshots/timeline.png" alt="时间轴" width="49%">
+</p>
+<p align="center">
+  <img src="docs/screenshots/tunnel.png" alt="时光隧道 · 年度热力图" width="98%">
+</p>
+<p align="center"><sub>截图均为程序生成的示例数据，非真实日记</sub></p>
+
 ## 功能特性
 
 - **✏️ 写日记** — 天气、心情、信笺纸张与分类标签，单日 150 篇上限，轻量而克制

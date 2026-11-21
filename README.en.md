@@ -6,6 +6,17 @@ A privacy-first **local diary app**. All data stays on your own computer — no 
 
 "Suhui" (溯洄) comes from a classical Chinese poem: "To trace the stream upward after it, the way is hard and long." Keeping a diary is exactly that — walking back up the river of time to recover the days that sank into the tunnel.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/write.png" alt="Writing" width="49%">
+  <img src="docs/screenshots/timeline.png" alt="Timeline" width="49%">
+</p>
+<p align="center">
+  <img src="docs/screenshots/tunnel.png" alt="Time Tunnel · yearly heatmap" width="98%">
+</p>
+<p align="center"><sub>All screenshots show programmatically generated sample data, not real diary entries.</sub></p>
+
 > **Note**: This app is currently localized in Chinese only. The UI language is Simplified Chinese.
 
 ## Features
