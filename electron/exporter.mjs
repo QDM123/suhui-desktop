@@ -8,6 +8,7 @@ import { BrowserWindow, app, nativeImage, Notification } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, PageBreak } from 'docx'
+import { WEATHERS, MOODS } from '../src/constants.js'
 
 const WEEK_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
@@ -17,9 +18,24 @@ function esc(s) {
 function mediaUrl(mediaDir, fileName) {
   return 'file:///' + path.join(mediaDir, fileName).replace(/\\/g, '/')
 }
+function weatherOf(id) {
+  return WEATHERS.find((w) => w.id === id) || WEATHERS[0]
+}
+function moodOf(i) {
+  return i == null ? '' : MOODS[i] || ''
+}
 function dateLabel(e) {
   const d = new Date(e.occurred_at)
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${WEEK_CN[e.weekday]} ${e.occurred_at.slice(11, 16)}`
+}
+/** 元信息串：日期 · 天气 · 心情 · 分类 · 地址（导出三格式共用） */
+function metaText(e) {
+  const parts = [dateLabel(e)]
+  parts.push(`${weatherOf(e.weather).icon}${weatherOf(e.weather).name}`)
+  if (moodOf(e.mood)) parts.push(moodOf(e.mood))
+  if (e.category_name) parts.push(`分类：${e.category_name}`)
+  if (e.address) parts.push(`📍${e.address}`)
+  return parts.join(' · ')
 }
 function imgDims(mediaDir, m) {
   try {
@@ -49,7 +65,7 @@ function entryBlockHtml(e, mediaDir, opts = {}) {
     .join('')
   return `
   <section class="entry">
-    <div class="meta">${esc(dateLabel(e))}${e.address ? ` · 📍${esc(e.address)}` : ''}</div>
+    <div class="meta">${esc(metaText(e))}</div>
     <h2>${esc(e.title)}</h2>
     <div class="content">${esc(e.content)}</div>
     ${imgs ? `<div class="imgs">${imgs}</div>` : ''}
@@ -94,7 +110,7 @@ function buildLongImageHtml(e, mediaDir) {
     .foot { text-align:center; font-size:11px; color:#b6bfce; margin-top:18px; letter-spacing:2px; }
   </style></head><body>
     <div class="paper">
-      <div class="meta">${esc(dateLabel(e))}${e.address ? ` · 📍${esc(e.address)}` : ''}</div>
+      <div class="meta">${esc(metaText(e))}</div>
       <h2>${esc(e.title)}</h2>
       <div class="content">${esc(e.content)}</div>
       ${e.media.length ? `<div class="imgs">${e.media.map((m) => `<img src="${mediaUrl(mediaDir, m.file_name)}" alt="">`).join('')}</div>` : ''}
@@ -159,7 +175,7 @@ export async function exportWord(entries, mediaDir, savePath) {
     }))
     children.push(new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: dateLabel(e), color: '8695B2', size: 20 })]
+      children: [new TextRun({ text: metaText(e), color: '8695B2', size: 20 })]
     }))
     children.push(new Paragraph({
       spacing: { before: 120, after: 120 },
@@ -212,6 +228,83 @@ export async function exportLongImage(entry, mediaDir, savePath) {
   } finally {
     win.destroy()
   }
+}
+
+/* ---------- HTML 导出（文件夹形态：index.html + images/，适合迁移与分享） ---------- */
+
+function exportEntryHtml(e) {
+  const imgs = e.media
+    .map((m) => `<img src="images/${esc(m.file_name)}" alt="" loading="lazy">`)
+    .join('')
+  return `
+  <section class="entry">
+    <div class="meta">${esc(metaText(e))}</div>
+    <h2>${esc(e.title)}</h2>
+    <div class="content">${esc(e.content)}</div>
+    ${imgs ? `<div class="imgs">${imgs}</div>` : ''}
+    ${e.tags.length ? `<div class="tags">${e.tags.map((t) => '#' + esc(t)).join('　')}</div>` : ''}
+  </section>`
+}
+
+function buildExportHtml(entries) {
+  const range = entries.length > 1
+    ? `${entries[0].day} ~ ${entries[entries.length - 1].day}`
+    : entries[0].day
+  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>溯洄日记合集</title><style>
+    ${BASE_CSS}
+    body { background:#eef1f5; padding:28px 14px; }
+    .wrap { max-width:860px; margin:0 auto; }
+    .head { text-align:center; padding:26px 0 14px; }
+    .head h1 { font-size:22px; letter-spacing:3px; }
+    .head .sub { font-size:12.5px; color:#8695B2; margin-top:8px; }
+    .entry { background:#fffdf8; border-radius:12px; padding:26px 30px; margin-bottom:18px;
+      box-shadow:0 3px 14px rgba(40,50,70,.07); }
+    .meta { font-size:12.5px; color:#8695B2; margin-bottom:8px; }
+    h2 { font-size:18px; margin-bottom:12px; }
+    .content { font-size:14.5px; line-height:2.05; white-space:pre-wrap; }
+    .imgs { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-top:14px; }
+    .imgs img { width:100%; height:240px; object-fit:cover; border-radius:8px; }
+    .tags { font-size:12.5px; color:#00a99d; margin-top:12px; }
+    .foot { text-align:center; font-size:11px; color:#b6bfce; margin:20px 0 8px; letter-spacing:2px; }
+    @media (max-width:600px){ .imgs{grid-template-columns:1fr;} }
+    @media print { body{background:#fff;padding:0;} .entry{box-shadow:none;border-bottom:1px dashed #d8dce4;border-radius:0;} }
+  </style></head><body>
+    <div class="wrap">
+      <div class="head">
+        <h1>溯洄日记合集</h1>
+        <div class="sub">共 ${entries.length} 篇 · ${esc(range)} · 导出于 ${new Date().toLocaleDateString('zh-CN')}</div>
+      </div>
+      ${entries.map(exportEntryHtml).join('')}
+      <div class="foot">溯洄 · 桌面版</div>
+    </div>
+  </body></html>`
+}
+
+/**
+ * 导出 HTML 文件夹：targetDir/index.html + targetDir/images/<原图>
+ * 返回总字节数（HTML + 图片），供导出历史记录展示。
+ */
+export async function exportHtml(entries, mediaDir, targetDir) {
+  if (!entries.length) throw new Error('没有可导出的日记')
+  const imgDir = path.join(targetDir, 'images')
+  fs.mkdirSync(imgDir, { recursive: true })
+  let copiedBytes = 0
+  const copied = new Set()
+  for (const e of entries) {
+    for (const m of e.media) {
+      if (copied.has(m.file_name)) continue
+      copied.add(m.file_name)
+      const src = path.join(mediaDir, m.file_name)
+      if (!fs.existsSync(src)) continue
+      fs.copyFileSync(src, path.join(imgDir, m.file_name))
+      copiedBytes += fs.statSync(src).size
+    }
+  }
+  const html = buildExportHtml(entries)
+  fs.writeFileSync(path.join(targetDir, 'index.html'), html, 'utf-8')
+  return Buffer.byteLength(html, 'utf-8') + copiedBytes
 }
 
 export function notifyDone(fileName) {

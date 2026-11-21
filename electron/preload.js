@@ -20,6 +20,7 @@ const api = {
     openDataDir: () => ipcRenderer.invoke('app:open-data-dir'),
     recentAddresses: () => ipcRenderer.invoke('app:recent-addresses'),
     version: () => ipcRenderer.invoke('app:get-version'),
+    sysinfo: () => ipcRenderer.invoke('app:get-sysinfo'),
     autostart: {
       get: () => ipcRenderer.invoke('app:get-autostart'),
       set: (on) => ipcRenderer.invoke('app:set-autostart', on)
@@ -44,7 +45,11 @@ const api = {
     restore: (zipPath) => ipcRenderer.invoke('backup:restore', zipPath),
     getSettings: () => ipcRenderer.invoke('backup:get-settings'),
     setSettings: (patch) => ipcRenderer.invoke('backup:set-settings', patch),
-    chooseDir: () => ipcRenderer.invoke('backup:choose-dir')
+    chooseDir: () => ipcRenderer.invoke('backup:choose-dir'),
+    list: () => ipcRenderer.invoke('backup:list'),
+    createNow: () => ipcRenderer.invoke('backup:create-now'),
+    delete: (file) => ipcRenderer.invoke('backup:delete', file),
+    validate: (zipPath) => ipcRenderer.invoke('backup:validate', zipPath)
   },
   diary: {
     ensureDraft: (init) => ipcRenderer.invoke('diary:ensure-draft', init),
@@ -84,6 +89,7 @@ const api = {
     purge: (id) => ipcRenderer.invoke('bin:purge', id)
   },
   export: {
+    preview: (opts) => ipcRenderer.invoke('export:preview', opts),
     run: (type, opts) => ipcRenderer.invoke('export:run', type, opts),
     longImage: (entryId) => ipcRenderer.invoke('export:long-image', entryId),
     history: () => ipcRenderer.invoke('export:history'),

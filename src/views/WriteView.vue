@@ -26,7 +26,7 @@
           <span>⏰</span>
           <input type="time" v-model="timeInput" @change="ed.setField('occurredTime', timeInput)">
         </label>
-        <span class="ed-hint">🚫 未来不可写 · 每日上限 {{ DAILY_LIMIT }} 篇</span>
+        <span class="ed-hint">🚫 未来不可写</span>
         <span class="grow"></span>
         <button class="btn sm ghost" :disabled="autoBusy" title="按当前位置自动填地址与天气" @click="applyAuto(false)">
           {{ autoBusy ? '定位中…' : '📍 自动填充' }}
@@ -41,6 +41,10 @@
         <button class="info-btn" @click="openTags"># {{ ed.tags.length ? ed.tags.join(' ') : '标签' }}</button>
         <button class="info-btn addr" :title="ed.fields.address" @click="openAddress">📍 {{ ed.fields.address || '所在位置' }}</button>
         <span class="grow"></span>
+        <button class="info-btn fmt" title="有序列表（Ctrl+Shift+O）" @click="toggleList('ol')">1.</button>
+        <button class="info-btn fmt" title="无序列表（Ctrl+Shift+U）" @click="toggleList('ul')">•</button>
+        <button class="info-btn fmt" title="分隔线（Ctrl+Shift+H）" @click="insertDivider">─</button>
+        <button class="info-btn fmt" title="插入时间戳（Ctrl+Shift+T）" @click="insertTimestamp">⏱</button>
         <button class="info-btn" title="添加图片（可多选）" @click="addFiles">🖼️ 图片</button>
       </div>
     </div>
@@ -50,7 +54,7 @@
       <input class="ed-title" placeholder="标题（可留空）" :value="ed.fields.title"
              @input="ed.setField('title', $event.target.value)">
 
-      <textarea class="ed-content" placeholder="此刻，想说点什么…（支持 Ctrl+V 粘贴图片）"
+      <textarea ref="contentRef" class="ed-content" placeholder="此刻，想说点什么…（支持 Ctrl+V 粘贴图片）"
                 :value="ed.fields.content"
                 @input="ed.setField('content', $event.target.value)"></textarea>
 
@@ -163,15 +167,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useEditorStore } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
 import { useAppStore } from '../stores/app'
 import { useTimelineStore } from '../stores/timeline'
-import { WEATHERS, MOODS, BUILTIN_PAPERS, weatherOf, moodOf, fmtDay, fmtClock, DAILY_LIMIT } from '../constants'
+import { WEATHERS, MOODS, BUILTIN_PAPERS, weatherOf, moodOf, fmtDay, fmtClock } from '../constants'
 import { getAutoInfo } from '../autofill'
 import { usePaperStore } from '../stores/papers'
+import { matchShortcut } from '../shortcuts'
 import Modal from '../components/Modal.vue'
 import Lightbox from '../components/Lightbox.vue'
 
@@ -198,6 +203,88 @@ const autoBusy = ref(false)
 /* 自动填充只覆盖“仍是打开时默认值”的字段，用户手填不覆盖 */
 const defaultsAtOpen = ref({ address: '', weather: 1 })
 
+const contentRef = ref(null)
+
+/* ---------- 快捷键与排版工具（列表 / 分隔线 / 时间戳） ---------- */
+
+/** 更新正文并恢复光标到指定位置 */
+function applyContent(newVal, selStart, selEnd) {
+  ed.setField('content', newVal)
+  nextTick(() => {
+    if (!contentRef.value) return
+    contentRef.value.focus()
+    contentRef.value.setSelectionRange(selStart, selEnd)
+  })
+}
+
+/** 行级列表切换：作用于光标所在行或选中的多行；重复按可取消/互转（标记为 Markdown 兼容语法） */
+function toggleList(kind) {
+  const ta = contentRef.value
+  const val = ed.fields.content || ''
+  const start = ta ? ta.selectionStart : val.length
+  const end = ta ? ta.selectionEnd : val.length
+  const ls = val.lastIndexOf('\n', Math.max(start - 1, 0)) + 1
+  let le = val.indexOf('\n', end)
+  if (le === -1) le = val.length
+  const lines = val.slice(ls, le).split('\n')
+  const olRe = /^\d+\.\s/
+  const ulRe = /^-\s/
+  const allOl = lines.every((l) => olRe.test(l))
+  const allUl = lines.every((l) => ulRe.test(l))
+  const strip = (l) => l.replace(olRe, '').replace(ulRe, '')
+  const next = kind === 'ol'
+    ? (allOl ? lines.map((l) => l.replace(olRe, ''))
+             : lines.map((l, i) => `${i + 1}. ${strip(l)}`))
+    : (allUl ? lines.map((l) => l.replace(ulRe, ''))
+             : lines.map((l) => `- ${strip(l)}`))
+  const newBlock = next.join('\n')
+  applyContent(val.slice(0, ls) + newBlock + val.slice(le), ls, ls + newBlock.length)
+}
+
+/** 光标处插入分隔线（前后自动补换行） */
+function insertDivider() {
+  const ta = contentRef.value
+  const val = ed.fields.content || ''
+  const at = ta ? ta.selectionStart : val.length
+  const before = val.slice(0, at)
+  const pre = before && !before.endsWith('\n') ? '\n' : ''
+  const text = `${pre}———————\n`
+  applyContent(before + text + val.slice(at), at + text.length, at + text.length)
+}
+
+/** 光标处插入当前日期时间 */
+function insertTimestamp() {
+  const ta = contentRef.value
+  const val = ed.fields.content || ''
+  const at = ta ? ta.selectionStart : val.length
+  const d = new Date()
+  const text = `${fmtDay(d)} ${fmtClock(d)} `
+  applyContent(val.slice(0, at) + text + val.slice(at), at + text.length, at + text.length)
+}
+
+function onKeydown(e) {
+  /* 从快捷键注册表匹配写作页/正文作用域（键位与说明页同源） */
+  const sc = matchShortcut(e, ['write', 'content'])
+  if (!sc) return
+  /* Esc：关闭当前打开的弹窗（信纸 / 天气 / 心情 / 分类 / 标签 / 位置） */
+  if (sc.id === 'close-modal') {
+    for (const k of Object.keys(show)) {
+      if (show[k]) { show[k] = false; e.preventDefault(); return }
+    }
+    if (showPapers.value) { showPapers.value = false; e.preventDefault() }
+    return
+  }
+  e.preventDefault()
+  if (sc.id === 'save-exit') done()
+  else if (sc.id === 'ol') toggleList('ol')
+  else if (sc.id === 'ul') toggleList('ul')
+  else if (sc.id === 'divider') insertDivider()
+  else if (sc.id === 'timestamp') insertTimestamp()
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
 const lbShow = ref(false)
 const lbIndex = ref(0)
 
@@ -205,13 +292,14 @@ const todayStr = fmtDay()
 const weatherIcon = computed(() => weatherOf(ed.fields.weather).icon)
 const weatherName = computed(() => weatherOf(ed.fields.weather).name)
 const moodIcon = computed(() => (ed.fields.mood == null ? '😶' : moodOf(ed.fields.mood)))
-/* 信纸解析：夜间内置→paper-5；自定义信纸保持用户选择 */
+/* 信纸解析：夜间内置→paper-5；自定义信纸保持用户选择；
+   forText=true → 图案交给正文层画（32px 节奏，横线与文字对齐且随滚动） */
 const paperInfo = computed(() => {
   const bg = ed.fields.background
   if (app.night && !(bg || '').startsWith('custom:')) {
     return { cls: 'paper-5', style: null }
   }
-  return ps.resolve(bg)
+  return ps.resolve(bg, true)
 })
 /* 默认展示 5 款：当前选中优先 + 内置补足 */
 const pickList = computed(() => {
@@ -383,6 +471,7 @@ async function done() {
 
 <style>
 .ed-title-label{font-size:14px;font-weight:700;margin-left:2px;}
+.info-btn.fmt{min-width:36px;justify-content:center;font-weight:700;padding-left:8px;padding-right:8px;}
 .tool-btn.big{font-size:20px;padding:6px 12px;}
 .save-state{font-size:11.5px;color:var(--text-secondary);cursor:default;min-width:110px;text-align:right;}
 .save-state.saved{color:var(--accent);}

@@ -1,7 +1,7 @@
 <template>
   <div class="view" style="max-width:640px;margin:0 auto;width:100%;">
     <div class="view-head">
-      <button class="tool-btn" title="返回" @click="router.push('/timeline')">‹</button>
+      <button class="tool-btn" title="返回" @click="back">‹</button>
       <h1>标签管理</h1>
       <span class="sub">共 {{ list.length }} 个 · 孤儿标签（0 引用）可删除</span>
     </div>
@@ -42,6 +42,9 @@ import { useUiStore } from '../stores/ui'
 import Modal from '../components/Modal.vue'
 
 const router = useRouter()
+
+/* 从哪进入回哪：无来源时回设置 */
+function back() { router.push(router.options.history.state.back || '/settings') }
 const ui = useUiStore()
 
 const list = ref([])

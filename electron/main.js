@@ -6,10 +6,11 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, protocol, Notification, session } from 'electron'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { initDb, getDb, getDao, paths } from './db'
-import { exportPdf, exportWord, exportLongImage, notifyDone } from './exporter.mjs'
-import { createBackupZip, dailySnapshot, validateBackup, doRestore, autoBackup } from './backup.mjs'
+import { exportPdf, exportWord, exportHtml, exportLongImage, notifyDone } from './exporter.mjs'
+import { createBackupZip, dailySnapshot, validateBackup, doRestore, autoBackup, listBackups, backupNow, deleteBackup } from './backup.mjs'
 import { importPick, importRun } from './importer.mjs'
 
 /* 数据目录固定为 %APPDATA%/suhui-desktop：
@@ -19,6 +20,7 @@ app.setPath('userData', path.join(app.getPath('appData'), 'suhui-desktop'))
 
 let mainWindow = null
 let closeConfirmed = false
+let closeHandshaking = false /* 握手进行中（flush→备份→关窗）：幂等标志 */
 
 /* 单实例锁：同一 userData 不允许两个实例同时运行
    （避免 SQLite/GPU 缓存文件互相拒绝访问） */
@@ -64,9 +66,10 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null })
 
   /* 关窗守卫（计划 §2.3）：先让渲染进程 flush 编辑器待写变更，
-     收到 app:confirm-close 后才真正关闭 */
+     收到 app:confirm-close 后才真正关闭；
+     握手进行中（退出备份期间）的重复 X 也一并拦下，避免备份被中途打断 */
   mainWindow.on('close', (e) => {
-    if (!closeConfirmed && mainWindow && !mainWindow.isDestroyed()) {
+    if ((!closeConfirmed || closeHandshaking) && mainWindow && !mainWindow.isDestroyed()) {
       e.preventDefault()
       mainWindow.webContents.send('app:before-close')
     }
@@ -157,8 +160,11 @@ ipcMain.on('win:toggle-maximize', () => {
 })
 ipcMain.on('win:close', () => mainWindow?.close())
 
-/* 关窗守卫握手（退出时自动备份：flush 后、关窗前落一份快照） */
+/* 关窗守卫握手（退出时自动备份：flush 后、关窗前落一份快照）
+   幂等：握手期间的重复 confirm-close 直接忽略，确保退出备份只跑一次 */
 ipcMain.on('app:confirm-close', async () => {
+  if (closeHandshaking) return
+  closeHandshaking = true
   closeConfirmed = true
   if (BACKUP.onExit) {
     try {
@@ -168,6 +174,7 @@ ipcMain.on('app:confirm-close', async () => {
       console.warn('[备份] 退出时备份失败：', e?.message || e)
     }
   }
+  closeHandshaking = false /* 先解除握手占用，让下面的 close 通过守卫 */
   mainWindow?.close()
   closeConfirmed = false
 })
@@ -206,6 +213,18 @@ ipcMain.handle('app:open-data-dir', () => {
 ipcMain.handle('app:recent-addresses', () => getDao().recentAddresses())
 ipcMain.handle('app:get-version', () => app.getVersion())
 
+/* 系统环境信息（设置-关于）：OS / 架构 / 运行形态 */
+ipcMain.handle('app:get-sysinfo', () => {
+  const platform = process.platform === 'win32' ? 'Windows'
+    : process.platform === 'darwin' ? 'macOS' : process.platform
+  return {
+    os: `${platform} ${os.release()}`,
+    arch: process.arch === 'x64' ? 'x64（64 位）' : process.arch,
+    installType: process.env.PORTABLE_EXECUTABLE_DIR ? '便携版'
+      : app.isPackaged ? '安装版（NSIS）' : '开发模式'
+  }
+})
+
 /* 随系统启动（Phase 9 追加）：登录项写入注册表，仅打包版生效 */
 ipcMain.handle('app:get-autostart', () => ({
   enabled: app.getLoginItemSettings().openAtLogin,
@@ -241,13 +260,52 @@ ipcMain.handle('bin:list', () => getDao().listDeleted())
 ipcMain.handle('bin:restore', (_e, id) => getDao().restore(id))
 ipcMain.handle('bin:purge', (_e, id) => getDao().purge(id))
 
-/* ---------- 导出（Phase 7） ---------- */
+/* ---------- 导出（Phase 7；预览 + HTML 形态为本次增强） ---------- */
+
+/* 导出前预览：只回轻量摘要，不传正文与图片 */
+ipcMain.handle('export:preview', (_e, opts) => {
+  const entries = getDao().listForExport(opts || {})
+  return {
+    count: entries.length,
+    fromDay: entries.length ? entries[0].day : null,
+    toDay: entries.length ? entries[entries.length - 1].day : null,
+    mediaCount: entries.reduce((s, e) => s + e.media.length, 0),
+    items: entries.map((e) => ({
+      day: e.day,
+      weekday: e.weekday,
+      title: e.title,
+      categoryName: e.category_name || '',
+      mediaCount: e.media.length,
+      tagCount: e.tags.length
+    }))
+  }
+})
+
 ipcMain.handle('export:run', async (_e, type, opts) => {
   const dao = getDao()
   const entries = dao.listForExport(opts || {})
   if (!entries.length) return { ok: false, error: '没有符合条件的日记' }
 
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+
+  /* HTML：文件夹形态（index.html + images/），保存对话框选的是文件夹名 */
+  if (type === 'html') {
+    const r = await dialog.showSaveDialog(mainWindow, {
+      title: '导出 HTML（将生成文件夹：index.html + images）',
+      defaultPath: path.join(app.getPath('documents'), `日记导出-${stamp}`),
+      buttonLabel: '导出到此处',
+      filters: []
+    })
+    if (r.canceled || !r.filePath) return { canceled: true }
+    /* 目标文件夹已存在时自动加序号，避免与旧导出混在一起 */
+    let dir = r.filePath
+    for (let n = 2; fs.existsSync(dir); n++) dir = `${r.filePath} (${n})`
+    const bufLen = await exportHtml(entries, paths.mediaDir(), dir)
+    getDao().addExportFile('html', dir, bufLen)
+    notifyDone(path.basename(dir))
+    return { ok: true, path: dir, size: bufLen }
+  }
+
   const cfg = type === 'pdf'
     ? { title: '导出 PDF', name: `溯洄日记-${stamp}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] }
     : { title: '导出 Word', name: `溯洄日记-${stamp}.docx`, filters: [{ name: 'Word', extensions: ['docx'] }] }
@@ -514,6 +572,32 @@ ipcMain.handle('backup:restore', (_e, zipPath) => {
   app.relaunch()
   app.exit(0)
   return true
+})
+
+/* ---------- 备份管理中心（Phase 9）：列表 / 立即备份 / 删除 / 校验 ---------- */
+
+ipcMain.handle('backup:list', () => listBackups(BACKUP.effectiveDir()))
+
+ipcMain.handle('backup:create-now', async () => {
+  try {
+    const r = await backupNow(BACKUP.effectiveDir())
+    return { ok: true, ...r }
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+})
+
+/* 删除按文件名定位（拼入备份目录），不接受任意路径 */
+ipcMain.handle('backup:delete', (_e, file) => {
+  try {
+    return deleteBackup(BACKUP.effectiveDir(), String(file || ''))
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+})
+
+ipcMain.handle('backup:validate', (_e, zipPath) => {
+  try { return validateBackup(zipPath) } catch (e) { return { ok: false, error: String(e?.message || e) } }
 })
 
 /* ---------- Markdown 导入（两段式：先解析摘要，确认后写入） ---------- */

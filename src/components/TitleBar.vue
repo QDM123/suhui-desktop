@@ -7,7 +7,7 @@
       <input
         ref="searchRef"
         :value="tl.searchQ"
-        placeholder="搜索日记：标题 / 正文 / 标签（Ctrl+K）"
+        placeholder="搜索日记：标题 / 正文 / 标签（Ctrl+F）"
         @input="onInput($event.target.value)"
         @keydown.escape="clearSearch"
       >
@@ -62,9 +62,19 @@ function onKeydown(e) {
   }
 }
 
-onMounted(() => document.addEventListener('keydown', onKeydown))
+/* 全局快捷键 Ctrl+F（App.vue）→ 聚焦搜索框 */
+function onFocusSearch() {
+  searchRef.value?.focus()
+  searchRef.value?.select()
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', onKeydown)
+  window.addEventListener('app:focus-search', onFocusSearch)
+})
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('app:focus-search', onFocusSearch)
   clearTimeout(timer)
 })
 </script>

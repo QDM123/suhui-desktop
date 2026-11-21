@@ -4,17 +4,16 @@
     <div class="tl-list">
       <div class="tools">
         <div class="seg"><button :class="{ on: !tl.filterCat }" @click="tl.setFilter(tl.filterCat)">全部</button></div>
-        <!-- 分类：按使用频率取前 4，··· 展开全部 -->
-        <div class="cat-bar">
+        <!-- 分类：全部横排展示，超出可横向滚动（滚轮可横移） -->
+        <div ref="catBar" class="cat-bar" @wheel="onCatWheel">
           <span
-            v-for="c in topCats"
+            v-for="c in sortedCats"
             :key="c.id"
             class="chip"
             :class="{ on: tl.filterCat === c.id }"
             :title="`${c.name} · ${c.entry_count} 篇`"
             @click="tl.setFilter(c.id)"
           ><i class="cat-dot" :style="{ background: c.color }"></i>{{ c.name }}</span>
-          <button v-if="sortedCats.length > 4" class="cat-more" title="全部分类" @click="showCats = true">···</button>
         </div>
         <button class="tool-btn" title="管理分类" style="font-size:13px" @click="router.push('/categories')">⚙</button>
       </div>
@@ -108,27 +107,12 @@
         @move="lbMove"
       />
 
-      <!-- 全部分类（···） -->
-      <Modal :visible="showCats" title="全部分类（按常用排序）" :buttons="[]" @close="showCats = false">
-        <div class="chip-row chip-lg" style="justify-content:center">
-          <span
-            v-for="c in sortedCats"
-            :key="c.id"
-            class="chip"
-            :class="{ on: tl.filterCat === c.id }"
-            @click="tl.setFilter(c.id); showCats = false"
-          ><i class="cat-dot" :style="{ background: c.color }"></i>{{ c.name }}<em> {{ c.entry_count }}</em></span>
-        </div>
-        <div class="modal-ok">
-          <button class="btn sm ghost" @click="showCats = false; router.push('/categories')">管理分类</button>
-        </div>
-      </Modal>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTimelineStore } from '../stores/timeline'
 import { useUiStore } from '../stores/ui'
@@ -136,7 +120,6 @@ import { useAppStore } from '../stores/app'
 import { usePaperStore } from '../stores/papers'
 import { WEEK_CN, weatherOf, moodOf } from '../constants'
 import Lightbox from '../components/Lightbox.vue'
-import Modal from '../components/Modal.vue'
 
 const router = useRouter()
 const tl = useTimelineStore()
@@ -146,29 +129,50 @@ const ps = usePaperStore()
 
 const lbShow = ref(false)
 const lbIndex = ref(0)
-const showCats = ref(false)
 
-/* 分类顺序：以分类管理中拖拽设定的顺序为准（篇数仅作提示）；横排最多 4 个（当前选中始终可见） */
+/* 分类顺序：以分类管理中拖拽设定的顺序为准（篇数仅作提示）；全部横排，超出横向滚动 */
 const sortedCats = computed(() =>
   [...tl.categories].sort((a, b) => (a.sort - b.sort) || (a.id - b.id))
 )
-const topCats = computed(() => {
-  const top = sortedCats.value.slice(0, 4)
-  if (tl.filterCat && !top.some((c) => c.id === tl.filterCat)) {
-    const active = sortedCats.value.find((c) => c.id === tl.filterCat)
-    if (active) top[top.length - 1] = active
+
+const catBar = ref(null)
+
+/* 滚轮横移分类条（仅在可继续滚动的方向上拦截，不影响列表纵向滚动） */
+function onCatWheel(e) {
+  const el = catBar.value
+  if (!el || el.scrollWidth <= el.clientWidth) return
+  const d = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+  const canL = el.scrollLeft > 0
+  const canR = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+  if ((d < 0 && canL) || (d > 0 && canR)) {
+    e.preventDefault()
+    el.scrollLeft += d
   }
-  return top
+}
+
+/* 是否溢出：溢出才显示右缘渐隐提示 */
+function syncCatOverflow() {
+  const el = catBar.value
+  if (el) el.classList.toggle('more', el.scrollWidth > el.clientWidth + 1)
+}
+
+/* 选中分类自动滚入可见 */
+watch(() => tl.filterCat, async () => {
+  await nextTick()
+  catBar.value?.querySelector('.chip.on')
+    ?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' })
 })
+watch(sortedCats, async () => { await nextTick(); syncCatOverflow() })
 
 const readerEntry = computed(() => tl.reader?.entry || null)
-/* 信纸解析与编辑器同规则：夜间内置→paper-5，自定义保持 */
+/* 信纸解析与编辑器同规则：夜间内置→paper-5，自定义保持；
+   forText=true → 图案交给正文层画（与文字对齐且随滚动） */
 const paperInfo = computed(() => {
   const bg = readerEntry.value?.background
   if (app.night && !(bg || '').startsWith('custom:')) {
     return { cls: 'paper-5', style: null }
   }
-  return ps.resolve(bg)
+  return ps.resolve(bg, true)
 })
 const catName = computed(() => {
   const id = readerEntry.value?.category_id
@@ -218,6 +222,9 @@ function searchTag(name) {
 onMounted(async () => {
   await tl.loadCategories()
   await tl.load()
+  await nextTick()
+  syncCatOverflow()
+  window.addEventListener('resize', syncCatOverflow)
   ps.load()
   // 编辑器完成后的预选 / 默认选第一篇
   const target = tl.pendingSelectId && tl.list.some((e) => e.id === tl.pendingSelectId)
@@ -280,15 +287,12 @@ async function makeLongImage() {
 .r-imgs img:hover{transform:scale(1.03);}
 .tag-link{cursor:pointer;color:var(--accent);}
 .tag-link:hover{text-decoration:underline;}
-/* 分类横排（淘宝式） */
-.cat-bar{flex:1;display:flex;gap:7px;align-items:center;overflow:hidden;min-width:0;}
+/* 分类横排：单行可横向滚动，溢出时右缘渐隐提示 */
+.cat-bar{flex:1;display:flex;gap:7px;align-items:center;min-width:0;overflow-x:auto;scrollbar-width:none;}
+.cat-bar::-webkit-scrollbar{display:none;}
 .cat-bar .chip{flex:none;}
-.cat-more{
-  border:1px solid var(--line);background:var(--card);color:var(--text-secondary);
-  border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer;flex:none;letter-spacing:1px;
+.cat-bar.more{
+  -webkit-mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 26px),transparent);
+  mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 26px),transparent);
 }
-.cat-more:hover{border-color:var(--accent);color:var(--accent);}
-.chip-lg .chip{padding:9px 18px;font-size:13.5px;}
-.chip-lg .chip em{font-style:normal;font-size:11px;color:var(--text-secondary);margin-left:2px;}
-.modal-ok{text-align:center;margin-top:16px;}
 </style>
