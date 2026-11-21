@@ -77,6 +77,11 @@
         <span class="grow">从备份恢复<div class="s">选择备份 zip，覆盖当前全部数据后自动重启</div></span>
         <button class="btn sm ghost" :disabled="busy" @click="pickBackup">选择备份…</button>
       </div>
+      <div class="set-row">
+        <span>📥</span>
+        <span class="grow">从 Markdown 导入<div class="s">按「## 日期」分节的 md 文件，图片随相对路径一起导入；已导入过的内容自动跳过</div></span>
+        <button class="btn sm ghost" :disabled="busy" @click="pickImport">选择文件…</button>
+      </div>
     </div>
 
     <!-- 关于 -->
@@ -183,6 +188,38 @@ async function pickBackup() {
     ui.showToast('正在恢复，应用即将重启…')
     await new Promise((res) => setTimeout(res, 600))
     await window.api.backup.restore(r.path)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function pickImport() {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const r = await window.api.import.pick()
+    if (r.canceled) return
+    if (!r.ok) {
+      ui.askConfirm({ title: '无法导入', body: r.error, cancelText: '关闭' })
+      return
+    }
+    const missingTip = r.missing ? `（其中 ${r.missing} 张缺失，将跳过）` : ''
+    const okAsk = await ui.askConfirm({
+      title: '导入 Markdown 日记',
+      body: `该文件包含 ${r.entries} 篇日记、${r.images} 张图片${missingTip}。\n\n重复导入时相同内容会自动跳过，确定开始吗？`,
+      confirmText: '导入'
+    })
+    if (!okAsk) return
+    ui.showToast('正在导入…')
+    const res = await window.api.import.run(r.path)
+    if (res.ok) {
+      const parts = [`导入完成：${res.imported} 篇、${res.imagesAdded} 张图片`]
+      if (res.skippedDup) parts.push(`跳过重复 ${res.skippedDup} 篇`)
+      if (res.imagesMissing) parts.push(`缺失图片 ${res.imagesMissing} 张`)
+      ui.showToast(parts.join('，'))
+    } else {
+      ui.showToast(res.error || '导入失败')
+    }
   } finally {
     busy.value = false
   }
