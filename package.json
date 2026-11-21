@@ -35,12 +35,6 @@
           "arch": [
             "x64"
           ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
         }
       ]
     },
@@ -48,10 +42,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "shortcutName": "溯洄桌面版",
-      "artifactName": "suhui-setup-${version}.${ext}"
-    },
-    "portable": {
-      "artifactName": "suhui-portable-${version}.${ext}"
+      "artifactName": "suhui-setup-${version}-${arch}.${ext}"
     }
   },
   "dependencies": {
