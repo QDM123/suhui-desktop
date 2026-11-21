@@ -21,14 +21,15 @@ A privacy-first **local diary app**. All data stays on your own computer — no 
 
 ## Features
 
-- **✏️ Write** — weather, mood, letter-paper styles, categories and tags; a gentle cap of 150 entries per day
+- **✏️ Write** — weather, mood, letter-paper styles, categories and tags, with keyboard shortcuts; lightweight and restrained
 - **📖 Timeline** — browse all entries in reverse chronological order
 - **📅 Calendar** — revisit each day on a monthly calendar
 - **🕳️ Time Tunnel** — a yearly heatmap (by month / by day / by weekday) with stats: recorded days, longest streak, and blank periods
 - **🖼️ Album** — browse every photo embedded in your entries in one place
 - **🗑️ Trash Bin** — soft delete with one-click restore
-- **📤 Import / Export** — export to Word (docx); import from Markdown (with images, duplicates skipped)
-- **💾 Auto Backup** — scheduled snapshots, on-exit backup, and retention policy, all configurable
+- **📤 Import / Export** — merge-export to PDF / Word / HTML / long image, with date-range & category filters and an entry-by-entry preview before exporting; import from Markdown (with images, duplicates skipped)
+- **💾 Auto Backup** — scheduled snapshots, on-exit backup, and retention policy; the backup manager supports one-click backup, list-and-restore, and cleanup, with the newest copy always protected
+- **⌨️ Shortcuts** — Ctrl+N new entry, Ctrl+F search, Ctrl+E export, F1 cheat sheet; formatting inserts (lists, divider, timestamp) in the editor
 - **🎨 Personalization** — 5 theme colors, 15 built-in letter papers + DIY paper customization, night mode
 - **🧰 Management Pages** — categories / tags / papers, with drag-and-drop category ordering
 - **🚀 Extras** — launch on system startup (installed build), follow system light/dark mode
