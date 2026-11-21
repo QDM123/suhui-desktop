@@ -1,6 +1,6 @@
 {
   "name": "suhui-desktop",
-  "version": "1.0.26101",
+  "version": "1.0.26102",
   "description": "溯洄桌面版 - 个人本地日记应用（Electron + Vue 3 + SQLite）",
   "main": "./out/main/index.js",
   "author": "wgz",
