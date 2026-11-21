@@ -57,6 +57,7 @@ const api = {
   },
   category: {
     list: () => ipcRenderer.invoke('category:list'),
+    reorder: (ids) => ipcRenderer.invoke('category:reorder', ids),
     create: (name, color) => ipcRenderer.invoke('category:create', name, color),
     update: (id, patch) => ipcRenderer.invoke('category:update', id, patch),
     remove: (id) => ipcRenderer.invoke('category:delete', id)

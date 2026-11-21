@@ -98,6 +98,15 @@ export function createDao(db, mediaDir, opts = {}) {
     ).all()
   }
 
+  /* 拖拽排序：按传入 id 顺序重写 sort（阶段 9 追加） */
+  function reorderCategories(ids) {
+    const upd = db.prepare('UPDATE categories SET sort = ? WHERE id = ?')
+    db.transaction((list) => {
+      list.forEach((id, i) => upd.run(i, id))
+    })(ids)
+    return { ok: true }
+  }
+
   /* ---------- 分类管理（Phase 3） ---------- */
 
   const COLOR_RE = /^#[0-9a-fA-F]{6}$/

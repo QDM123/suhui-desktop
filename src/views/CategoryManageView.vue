@@ -3,7 +3,7 @@
     <div class="view-head">
       <button class="tool-btn" title="返回" @click="back">‹</button>
       <h1>分类管理</h1>
-      <span class="sub">共 {{ list.length }} 个 · 默认分类「生活」不可删除</span>
+      <span class="sub">共 {{ list.length }} 个 · 拖动 ⠿ 调整显示顺序 · 默认分类「生活」不可删除</span>
     </div>
 
     <!-- 新增 -->
@@ -24,9 +24,20 @@
       </div>
     </div>
 
-    <!-- 列表 -->
+    <!-- 列表（可拖拽排序） -->
     <div class="set-group">
-      <div v-for="c in list" :key="c.id" class="set-row">
+      <div
+        v-for="c in list"
+        :key="c.id"
+        class="set-row drag-row"
+        :class="{ dragging: dragId === c.id }"
+        draggable="true"
+        @dragstart="onDragStart(c)"
+        @dragover.prevent="onDragOver(c, $event)"
+        @drop.prevent="onDrop"
+        @dragend="onDragEnd"
+      >
+        <span class="drag-handle" title="拖动调整顺序">⠿</span>
         <i class="cat-dot" :style="{ background: c.color, cursor:'pointer' }" title="更换颜色" @click="cycleColor(c)"></i>
         <template v-if="editingId === c.id">
           <input v-model="editingName" class="mgmt-input" @keydown.enter="saveName(c)" @keydown.escape="editingId = null">
@@ -59,6 +70,35 @@ const newName = ref('')
 const newColor = ref(PALETTE[0])
 const editingId = ref(null)
 const editingName = ref('')
+const dragId = ref(null)
+
+/* 拖拽排序：dragover 时实时换位，dragend 落库 */
+function onDragStart(c) {
+  dragId.value = c.id
+}
+function onDragOver(target, e) {
+  if (!dragId.value || dragId.value === target.id) return
+  const from = list.value.findIndex((x) => x.id === dragId.value)
+  const to = list.value.findIndex((x) => x.id === target.id)
+  if (from < 0 || to < 0) return
+  /* 根据指针在目标行的上/下半决定插入到前/后 */
+  const r = e.currentTarget.getBoundingClientRect()
+  const after = e.clientY > r.top + r.height / 2
+  const arr = list.value
+  const [moved] = arr.splice(from, 1)
+  const insertAt = arr.findIndex((x) => x.id === target.id) + (after ? 1 : 0)
+  arr.splice(insertAt, 0, moved)
+}
+async function onDrop() { await persistOrder() }
+async function onDragEnd() {
+  if (dragId.value) await persistOrder()
+  dragId.value = null
+}
+async function persistOrder() {
+  dragId.value = null
+  await window.api.category.reorder(list.value.map((c) => c.id))
+  ui.showToast('显示顺序已保存')
+}
 
 const backFrom = ref('/timeline')
 function back() { router.push(backFrom.value) }
@@ -137,4 +177,9 @@ async function remove(c) {
 .palette .cat-dot{width:14px;height:14px;cursor:pointer;opacity:.6;}
 .palette .cat-dot:hover{opacity:1;}
 .palette .cat-dot.sel{opacity:1;outline:2px solid var(--accent);outline-offset:2px;}
+/* 拖拽排序 */
+.drag-row{cursor:default;}
+.drag-row.dragging{opacity:.45;}
+.drag-handle{cursor:grab;color:var(--text-secondary);font-size:15px;flex:none;padding:0 2px;user-select:none;}
+.drag-handle:active{cursor:grabbing;}
 </style>

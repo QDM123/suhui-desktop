@@ -148,9 +148,9 @@ const lbShow = ref(false)
 const lbIndex = ref(0)
 const showCats = ref(false)
 
-/* 分类排序：常用（日记多）在前，同数按管理顺序；横排最多 4 个（当前选中始终可见） */
+/* 分类顺序：以分类管理中拖拽设定的顺序为准（篇数仅作提示）；横排最多 4 个（当前选中始终可见） */
 const sortedCats = computed(() =>
-  [...tl.categories].sort((a, b) => (b.entry_count - a.entry_count) || (a.sort - b.sort))
+  [...tl.categories].sort((a, b) => (a.sort - b.sort) || (a.id - b.id))
 )
 const topCats = computed(() => {
   const top = sortedCats.value.slice(0, 4)
