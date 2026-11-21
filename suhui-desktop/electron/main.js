@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { initDb, getDb, getDao, paths } from './db'
 import { exportPdf, exportWord, exportLongImage, notifyDone } from './exporter.mjs'
-import { createBackupZip, dailySnapshot, validateBackup, doRestore } from './backup.mjs'
+import { createBackupZip, dailySnapshot, validateBackup, doRestore, autoBackup } from './backup.mjs'
 import { importPick, importRun } from './importer.mjs'
 
 /* 数据目录固定为 %APPDATA%/suhui-desktop：
@@ -95,6 +95,10 @@ app.whenReady().then(() => {
   /* 每日首次启动自动快照（Phase 8，计划 §2.3 最后防线） */
   dailySnapshot()
 
+  /* 自动备份：读取设置并启动定时器（Phase 9） */
+  loadBackupSettings()
+  scheduleAutoBackup()
+
   /* 提醒写日记：本地定时检查（Phase 8；应用未运行不提醒——托盘常驻为储备） */
   startReminderScheduler()
 
@@ -153,9 +157,17 @@ ipcMain.on('win:toggle-maximize', () => {
 })
 ipcMain.on('win:close', () => mainWindow?.close())
 
-/* 关窗守卫握手 */
-ipcMain.on('app:confirm-close', () => {
+/* 关窗守卫握手（退出时自动备份：flush 后、关窗前落一份快照） */
+ipcMain.on('app:confirm-close', async () => {
   closeConfirmed = true
+  if (BACKUP.onExit) {
+    try {
+      await autoBackup(BACKUP.effectiveDir(), BACKUP.keep)
+      console.log('[备份] 退出时备份完成')
+    } catch (e) {
+      console.warn('[备份] 退出时备份失败：', e?.message || e)
+    }
+  }
   mainWindow?.close()
   closeConfirmed = false
 })
@@ -394,6 +406,80 @@ ipcMain.handle('reminder:set', async (_e, { enabled, time }) => {
   setSetting('reminder.time', REMINDER.time)
   if (REMINDER.enabled) checkReminder()
   return { ok: true }
+})
+
+/* ---------- 自动备份设置（定时 / 退出 / 目录 / 保留份数，Phase 9 追加） ---------- */
+
+const BACKUP = {
+  dir: '',            // 自定义备份目录；空 = 应用数据目录 backups/
+  interval: 6,        // 运行中定时备份间隔（小时），0 = 关闭
+  onExit: true,       // 退出时自动备份
+  keep: 7,            // 自动备份保留份数
+  timer: null,
+  effectiveDir() {
+    if (this.dir && fs.existsSync(this.dir)) return this.dir
+    return path.join(paths.dataDir(), 'backups')
+  }
+}
+
+function loadBackupSettings() {
+  BACKUP.dir = getSetting('backup.dir', '') || ''
+  BACKUP.interval = Math.max(0, Number(getSetting('backup.interval', '6')) || 0)
+  BACKUP.onExit = getSetting('backup.on_exit', '1') === '1'
+  BACKUP.keep = Math.min(30, Math.max(3, Number(getSetting('backup.keep', '7')) || 7))
+}
+
+function scheduleAutoBackup() {
+  if (BACKUP.timer) { clearInterval(BACKUP.timer); BACKUP.timer = null }
+  if (!BACKUP.interval) return
+  BACKUP.timer = setInterval(async () => {
+    try {
+      const r = await autoBackup(BACKUP.effectiveDir(), BACKUP.keep)
+      console.log(`[备份] 定时备份完成：${r.file}`)
+    } catch (e) {
+      console.warn('[备份] 定时备份失败：', e?.message || e)
+    }
+  }, BACKUP.interval * 3600 * 1000)
+}
+
+ipcMain.handle('backup:get-settings', () => ({
+  dir: BACKUP.dir,
+  interval: BACKUP.interval,
+  onExit: BACKUP.onExit,
+  keep: BACKUP.keep,
+  effectiveDir: BACKUP.effectiveDir()
+}))
+
+ipcMain.handle('backup:set-settings', (_e, patch) => {
+  if ('dir' in patch) {
+    const d = String(patch.dir || '')
+    if (d && !fs.existsSync(d)) return { ok: false, error: '目录不存在' }
+    BACKUP.dir = d
+    setSetting('backup.dir', d)
+  }
+  if ('interval' in patch) {
+    BACKUP.interval = [0, 4, 6, 12].includes(Number(patch.interval)) ? Number(patch.interval) : 6
+    setSetting('backup.interval', String(BACKUP.interval))
+  }
+  if ('onExit' in patch) {
+    BACKUP.onExit = !!patch.onExit
+    setSetting('backup.on_exit', BACKUP.onExit ? '1' : '0')
+  }
+  if ('keep' in patch) {
+    BACKUP.keep = Math.min(30, Math.max(3, Number(patch.keep) || 7))
+    setSetting('backup.keep', String(BACKUP.keep))
+  }
+  scheduleAutoBackup()
+  return { ok: true }
+})
+
+ipcMain.handle('backup:choose-dir', async () => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: '选择自动备份目录',
+    properties: ['openDirectory', 'createDirectory']
+  })
+  if (r.canceled || !r.filePaths.length) return { canceled: true }
+  return { path: r.filePaths[0] }
 })
 
 /* ---------- 备份 / 恢复（Phase 8） ---------- */

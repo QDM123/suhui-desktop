@@ -58,6 +58,25 @@ export async function dailySnapshot() {
 }
 
 /** 校验备份 zip：必须含 suhui.db 且能打开、quick_check 通过；返回统计 */
+/* ---------- 自动备份（定时 / 退出时，Phase 9 追加） ---------- */
+
+const AUTO_PREFIX = 'suhui-auto-'
+
+/**
+ * 自动备份：生成 suhui-auto-<时间戳>.zip 到 targetDir，按 keep 份数滚动清理
+ * 与每日快照（suhui-snapshot-*）互不影响
+ */
+export async function autoBackup(targetDir, keep = 7) {
+  fs.mkdirSync(targetDir, { recursive: true })
+  const dest = path.join(targetDir, `${AUTO_PREFIX}${stamp()}.zip`)
+  const size = await createBackupZip(dest)
+  const all = fs.readdirSync(targetDir).filter((f) => f.startsWith(AUTO_PREFIX)).sort().reverse()
+  for (const f of all.slice(Math.max(1, keep))) {
+    try { fs.rmSync(path.join(targetDir, f), { force: true }) } catch { /* ignore */ }
+  }
+  return { file: path.basename(dest), size }
+}
+
 export function validateBackup(zipPath) {
   let zip
   try { zip = new AdmZip(zipPath) } catch { return { ok: false, error: '无法读取该 zip 文件' } }

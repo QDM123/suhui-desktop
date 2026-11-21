@@ -41,7 +41,10 @@ const api = {
   backup: {
     create: () => ipcRenderer.invoke('backup:create'),
     pick: () => ipcRenderer.invoke('backup:pick'),
-    restore: (zipPath) => ipcRenderer.invoke('backup:restore', zipPath)
+    restore: (zipPath) => ipcRenderer.invoke('backup:restore', zipPath),
+    getSettings: () => ipcRenderer.invoke('backup:get-settings'),
+    setSettings: (patch) => ipcRenderer.invoke('backup:set-settings', patch),
+    chooseDir: () => ipcRenderer.invoke('backup:choose-dir')
   },
   diary: {
     ensureDraft: (init) => ipcRenderer.invoke('diary:ensure-draft', init),
