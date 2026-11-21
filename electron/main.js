@@ -10,6 +10,7 @@ import path from 'node:path'
 import { initDb, getDb, getDao, paths } from './db'
 import { exportPdf, exportWord, exportLongImage, notifyDone } from './exporter.mjs'
 import { createBackupZip, dailySnapshot, validateBackup, doRestore } from './backup.mjs'
+import { importPick, importRun } from './importer.mjs'
 
 /* 数据目录固定为 %APPDATA%/suhui-desktop：
    打包后 productName（溯洄桌面版）会改变 app.name，进而改变默认 userData，
@@ -427,6 +428,30 @@ ipcMain.handle('backup:restore', (_e, zipPath) => {
   app.relaunch()
   app.exit(0)
   return true
+})
+
+/* ---------- Markdown 导入（两段式：先解析摘要，确认后写入） ---------- */
+
+ipcMain.handle('import:pick', async () => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: '选择 Markdown 日记文件',
+    properties: ['openFile'],
+    filters: [{ name: 'Markdown / 文本', extensions: ['md', 'markdown', 'txt'] }]
+  })
+  if (r.canceled || !r.filePaths.length) return { canceled: true }
+  try {
+    return importPick(r.filePaths[0])
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+})
+
+ipcMain.handle('import:run', (_e, mdPath) => {
+  try {
+    return importRun(getDao(), getDb(), mdPath)
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
 })
 
 /* ---------- 分类/标签管理（Phase 3） ---------- */

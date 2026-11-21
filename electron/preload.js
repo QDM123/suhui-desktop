@@ -86,6 +86,10 @@ const api = {
     deleteRecord: (id) => ipcRenderer.invoke('export:delete-record', id),
     reveal: (p) => ipcRenderer.invoke('export:reveal', p)
   },
+  import: {
+    pick: () => ipcRenderer.invoke('import:pick'),
+    run: (mdPath) => ipcRenderer.invoke('import:run', mdPath)
+  },
   papers: {
     list: () => ipcRenderer.invoke('papers:list'),
     addImage: (name) => ipcRenderer.invoke('papers:add-image', name),
