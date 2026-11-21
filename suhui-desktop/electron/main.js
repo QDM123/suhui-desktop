@@ -464,6 +464,7 @@ ipcMain.handle('tag:delete', (_e, id) => getDao().deleteTag(id))
 
 /* ---------- 分类 / 标签 ---------- */
 ipcMain.handle('category:list', () => getDao().listCategories())
+ipcMain.handle('category:reorder', (_e, ids) => getDao().reorderCategories(ids))
 ipcMain.handle('tag:list-all', () => getDao().listAllTags())
 
 /* ---------- 媒体（原图直存、不压缩） ---------- */
