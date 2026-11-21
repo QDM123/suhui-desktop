@@ -1,6 +1,6 @@
 {
   "name": "suhui-desktop",
-  "version": "1.0.0",
+  "version": "1.0.26101",
   "description": "溯洄桌面版 - 个人本地日记应用（Electron + Vue 3 + SQLite）",
   "main": "./out/main/index.js",
   "author": "wgz",
@@ -11,20 +11,37 @@
     "preview": "electron-vite preview",
     "test:dao": "node scripts/dao-smoke.mjs",
     "dist:win": "electron-vite build && electron-builder --win --publish never",
-    "pack:dir": "electron-vite build && electron-builder --win --dir --publish never"
+    "pack:dir": "electron-vite build && electron-builder --win --dir --publish never",
+    "release": "node scripts/release.mjs"
   },
   "build": {
     "appId": "com.wgz.suhui",
     "productName": "溯洄桌面版",
-    "directories": { "output": "release" },
-    "files": ["out/**"],
-    "asarUnpack": ["**/node_modules/better-sqlite3/**"],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**"
+    ],
     "npmRebuild": false,
     "win": {
       "icon": "resources/icon.png",
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {
