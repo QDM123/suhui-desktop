@@ -1,8 +1,10 @@
 /* ============================================================
    preload —— contextBridge 暴露 IPC 白名单
    渲染进程通过 window.api.* 调用，禁止直接触达 Node/Electron
+   `satisfies SuhuiApi`：与 src/types/api.d.ts 契约逐方法校验（A0-4）
    ============================================================ */
 import { contextBridge, ipcRenderer } from 'electron'
+import type { SuhuiApi } from '../src/types/api'
 
 const api = {
   window: {
@@ -106,6 +108,6 @@ const api = {
     addGen: (name, config) => ipcRenderer.invoke('papers:add-gen', name, config),
     remove: (id) => ipcRenderer.invoke('papers:remove', id)
   }
-}
+} satisfies SuhuiApi
 
 contextBridge.exposeInMainWorld('api', api)

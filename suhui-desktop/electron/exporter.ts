@@ -8,28 +8,38 @@ import { BrowserWindow, app, nativeImage, Notification } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Document, Packer, Paragraph, TextRun, ImageRun, AlignmentType, PageBreak } from 'docx'
-import { WEATHERS, MOODS } from '../src/constants.js'
+import type { ParagraphChild } from 'docx'
+import { WEATHERS, MOODS } from '../src/constants'
+import type { EntryRow, ExportEntry, MediaRow } from '../src/types/domain'
 
 const WEEK_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+/** 导出文档条目：dao 导出取数行，或长图的单篇（tags 为名字数组、media 为媒体行） */
+interface ExportDocEntry extends EntryRow {
+  tags: string[]
+  media: MediaRow[]
+  category_name?: string | null
 }
-function mediaUrl(mediaDir, fileName) {
+
+const ESC_MAP: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }
+function esc(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ESC_MAP[c])
+}
+function mediaUrl(mediaDir: string, fileName: string): string {
   return 'file:///' + path.join(mediaDir, fileName).replace(/\\/g, '/')
 }
-function weatherOf(id) {
+function weatherOf(id: number) {
   return WEATHERS.find((w) => w.id === id) || WEATHERS[0]
 }
-function moodOf(i) {
+function moodOf(i: number | null): string {
   return i == null ? '' : MOODS[i] || ''
 }
-function dateLabel(e) {
+function dateLabel(e: ExportDocEntry): string {
   const d = new Date(e.occurred_at)
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${WEEK_CN[e.weekday]} ${e.occurred_at.slice(11, 16)}`
 }
 /** 元信息串：日期 · 天气 · 心情 · 分类 · 地址（导出三格式共用） */
-function metaText(e) {
+function metaText(e: ExportDocEntry): string {
   const parts = [dateLabel(e)]
   parts.push(`${weatherOf(e.weather).icon}${weatherOf(e.weather).name}`)
   if (moodOf(e.mood)) parts.push(moodOf(e.mood))
@@ -37,14 +47,14 @@ function metaText(e) {
   if (e.address) parts.push(`📍${e.address}`)
   return parts.join(' · ')
 }
-function imgDims(mediaDir, m) {
+function imgDims(mediaDir: string, m: MediaRow): { width: number; height: number } {
   try {
     const s = nativeImage.createFromPath(path.join(mediaDir, m.file_name)).getSize()
     if (s.width > 0) return { width: s.width, height: s.height }
   } catch { /* ignore */ }
   return { width: m.width || 0, height: m.height || 0 }
 }
-function extType(name) {
+function extType(name: string): 'png' | 'gif' | 'bmp' | 'jpg' {
   const e = path.extname(name).toLowerCase()
   if (e === '.png') return 'png'
   if (e === '.gif') return 'gif'
@@ -59,7 +69,7 @@ const BASE_CSS = `
   body { font-family:"Microsoft YaHei","PingFang SC",sans-serif; color:#2b2f36; background:#fff; }
 `
 
-function entryBlockHtml(e, mediaDir, opts = {}) {
+function entryBlockHtml(e: ExportDocEntry, mediaDir: string, _opts: object = {}): string {
   const imgs = e.media
     .map((m) => `<img src="${mediaUrl(mediaDir, m.file_name)}" alt="">`)
     .join('')
@@ -74,7 +84,7 @@ function entryBlockHtml(e, mediaDir, opts = {}) {
 }
 
 /** PDF：A4 打印排版 */
-function buildPdfHtml(entries, mediaDir, title) {
+function buildPdfHtml(entries: ExportDocEntry[], mediaDir: string, title: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     ${BASE_CSS}
     .head { text-align:center; padding:26px 0 10px; font-size:20px; font-weight:700; letter-spacing:2px; }
@@ -95,7 +105,7 @@ function buildPdfHtml(entries, mediaDir, title) {
 }
 
 /** 长图：720px 竖版单篇 */
-function buildLongImageHtml(e, mediaDir) {
+function buildLongImageHtml(e: ExportDocEntry, mediaDir: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     ${BASE_CSS}
     body { width:720px; background:linear-gradient(180deg,#f2f4f7,#eef1f5); padding:28px; }
@@ -122,11 +132,14 @@ function buildLongImageHtml(e, mediaDir) {
 
 /* ---------- 隐藏窗口加载 ---------- */
 
-function tmpHtmlPath() {
+function tmpHtmlPath(): string {
   return path.join(app.getPath('userData'), 'export-tmp.html')
 }
 
-async function renderHiddenWindow(html, { width = 900, height = 800 } = {}) {
+async function renderHiddenWindow(
+  html: string,
+  { width = 900, height = 800 }: { width?: number; height?: number } = {}
+): Promise<BrowserWindow> {
   fs.writeFileSync(tmpHtmlPath(), html, 'utf-8')
   const win = new BrowserWindow({
     show: false,
@@ -145,7 +158,7 @@ async function renderHiddenWindow(html, { width = 900, height = 800 } = {}) {
 
 /* ---------- 导出实现 ---------- */
 
-export async function exportPdf(entries, mediaDir, savePath) {
+export async function exportPdf(entries: ExportEntry[], mediaDir: string, savePath: string): Promise<number> {
   if (!entries.length) throw new Error('没有可导出的日记')
   const title = entries.length === 1 ? entries[0].title : '溯洄日记合集'
   const win = await renderHiddenWindow(buildPdfHtml(entries, mediaDir, title), { width: 900, height: 1200 })
@@ -164,9 +177,9 @@ export async function exportPdf(entries, mediaDir, savePath) {
   }
 }
 
-export async function exportWord(entries, mediaDir, savePath) {
+export async function exportWord(entries: ExportEntry[], mediaDir: string, savePath: string): Promise<number> {
   if (!entries.length) throw new Error('没有可导出的日记')
-  const children = []
+  const children: Paragraph[] = []
   entries.forEach((e, i) => {
     if (i > 0) children.push(new Paragraph({ children: [new PageBreak()] }))
     children.push(new Paragraph({
@@ -191,14 +204,12 @@ export async function exportWord(entries, mediaDir, savePath) {
       const w = Math.min(480, d.width || 480)
       const h = d.width ? Math.round(d.height * (w / d.width)) : 320
       try {
-        children.push(new Paragraph({
-          spacing: { before: 100, after: 100 },
-          children: [new ImageRun({
-            type: extType(m.file_name),
-            data: fs.readFileSync(f),
-            transformation: { width: w, height: h }
-          })]
-        }))
+        const run: ParagraphChild = new ImageRun({
+          type: extType(m.file_name),
+          data: fs.readFileSync(f),
+          transformation: { width: w, height: h }
+        })
+        children.push(new Paragraph({ spacing: { before: 100, after: 100 }, children: [run] }))
       } catch { /* 跳过损坏图片 */ }
     }
     if (e.tags.length) {
@@ -214,10 +225,10 @@ export async function exportWord(entries, mediaDir, savePath) {
   return buf.length
 }
 
-export async function exportLongImage(entry, mediaDir, savePath) {
+export async function exportLongImage(entry: ExportDocEntry, mediaDir: string, savePath: string): Promise<number> {
   const win = await renderHiddenWindow(buildLongImageHtml(entry, mediaDir), { width: 720, height: 900 })
   try {
-    const height = await win.webContents.executeJavaScript('document.documentElement.scrollHeight')
+    const height: number = await win.webContents.executeJavaScript('document.documentElement.scrollHeight')
     const capped = Math.min(height, 16000)
     win.setContentSize(720, capped)
     await new Promise((r) => setTimeout(r, 400))
@@ -232,7 +243,7 @@ export async function exportLongImage(entry, mediaDir, savePath) {
 
 /* ---------- HTML 导出（文件夹形态：index.html + images/，适合迁移与分享） ---------- */
 
-function exportEntryHtml(e) {
+function exportEntryHtml(e: ExportDocEntry): string {
   const imgs = e.media
     .map((m) => `<img src="images/${esc(m.file_name)}" alt="" loading="lazy">`)
     .join('')
@@ -246,7 +257,7 @@ function exportEntryHtml(e) {
   </section>`
 }
 
-function buildExportHtml(entries) {
+function buildExportHtml(entries: ExportDocEntry[]): string {
   const range = entries.length > 1
     ? `${entries[0].day} ~ ${entries[entries.length - 1].day}`
     : entries[0].day
@@ -286,12 +297,12 @@ function buildExportHtml(entries) {
  * 导出 HTML 文件夹：targetDir/index.html + targetDir/images/<原图>
  * 返回总字节数（HTML + 图片），供导出历史记录展示。
  */
-export async function exportHtml(entries, mediaDir, targetDir) {
+export async function exportHtml(entries: ExportEntry[], mediaDir: string, targetDir: string): Promise<number> {
   if (!entries.length) throw new Error('没有可导出的日记')
   const imgDir = path.join(targetDir, 'images')
   fs.mkdirSync(imgDir, { recursive: true })
   let copiedBytes = 0
-  const copied = new Set()
+  const copied = new Set<string>()
   for (const e of entries) {
     for (const m of e.media) {
       if (copied.has(m.file_name)) continue
@@ -307,7 +318,7 @@ export async function exportHtml(entries, mediaDir, targetDir) {
   return Buffer.byteLength(html, 'utf-8') + copiedBytes
 }
 
-export function notifyDone(fileName) {
+export function notifyDone(fileName: string): void {
   try {
     new Notification({ title: '溯洄 · 桌面版', body: `导出完成：${fileName}` }).show()
   } catch { /* 通知不可用时静默 */ }

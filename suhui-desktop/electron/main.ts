@@ -9,16 +9,17 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { initDb, getDb, getDao, paths } from './db'
-import { exportPdf, exportWord, exportHtml, exportLongImage, notifyDone } from './exporter.mjs'
-import { createBackupZip, dailySnapshot, validateBackup, doRestore, autoBackup, listBackups, backupNow, deleteBackup } from './backup.mjs'
-import { importPick, importRun } from './importer.mjs'
+import { exportPdf, exportWord, exportHtml, exportLongImage, notifyDone } from './exporter'
+import { createBackupZip, dailySnapshot, validateBackup, doRestore, autoBackup, listBackups, backupNow, deleteBackup } from './backup'
+import { importPick, importRun } from './importer'
+import type { MediaRow } from '../src/types/domain'
 
 /* 数据目录固定为 %APPDATA%/suhui-desktop：
    打包后 productName（溯洄桌面版）会改变 app.name，进而改变默认 userData，
    这里显式钉死，保证开发/安装版/便携版共用同一数据目录 */
 app.setPath('userData', path.join(app.getPath('appData'), 'suhui-desktop'))
 
-let mainWindow = null
+let mainWindow: BrowserWindow | null = null
 let closeConfirmed = false
 let closeHandshaking = false /* 握手进行中（flush→备份→关窗）：幂等标志 */
 
@@ -43,7 +44,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'paper', privileges: { standard: true, secure: true, supportFetchAPI: true } }
 ])
 
-function createWindow() {
+function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 840,
@@ -62,7 +63,7 @@ function createWindow() {
     }
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow.show())
+  mainWindow.on('ready-to-show', () => mainWindow?.show())
   mainWindow.on('closed', () => { mainWindow = null })
 
   /* 关窗守卫（计划 §2.3）：先让渲染进程 flush 编辑器待写变更，
@@ -111,11 +112,11 @@ app.whenReady().then(() => {
   })
 
   /* media:// 协议实现：只允许访问 media/ 目录下的安全文件名 */
-  const MIME = {
+  const MIME: Record<string, string> = {
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.gif': 'image/gif', '.bmp': 'image/bmp', '.webp': 'image/webp'
   }
-  const serveDir = (baseDir) => (req) => {
+  const serveDir = (baseDir: string) => (req: Request): Response => {
     try {
       const name = decodeURIComponent(new URL(req.url).hostname)
       if (!/^[a-z0-9][a-z0-9.-]*$/.test(name) || name.includes('..')) {
@@ -171,7 +172,7 @@ ipcMain.on('app:confirm-close', async () => {
       await autoBackup(BACKUP.effectiveDir(), BACKUP.keep)
       console.log('[备份] 退出时备份完成')
     } catch (e) {
-      console.warn('[备份] 退出时备份失败：', e?.message || e)
+      console.warn('[备份] 退出时备份失败：', (e as { message?: string })?.message || e)
     }
   }
   closeHandshaking = false /* 先解除握手占用，让下面的 close 通过守卫 */
@@ -181,13 +182,13 @@ ipcMain.on('app:confirm-close', async () => {
 
 /* 设置读写（示例通道，Phase 6 主题等复用） */
 ipcMain.handle('settings:get', (_e, key, fallback = null) => {
-  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key)
+  const row = getDb().prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)
   return row ? row.value : fallback
 })
 
 ipcMain.handle('settings:set', (_e, key, value) => {
   getDb()
-    .prepare(
+    .prepare<[string, string], never>(
       `INSERT INTO settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`
     )
@@ -199,8 +200,8 @@ ipcMain.handle('settings:set', (_e, key, value) => {
 ipcMain.handle('app:stats', () => {
   const db = getDb()
   return {
-    entries: db.prepare('SELECT COUNT(*) AS c FROM entries WHERE deleted = 0').get().c,
-    categories: db.prepare('SELECT COUNT(*) AS c FROM categories').get().c
+    entries: db.prepare<[], { c: number }>('SELECT COUNT(*) AS c FROM entries WHERE deleted = 0').get()!.c,
+    categories: db.prepare<[], { c: number }>('SELECT COUNT(*) AS c FROM categories').get()!.c
   }
 })
 
@@ -290,7 +291,7 @@ ipcMain.handle('export:run', async (_e, type, opts) => {
 
   /* HTML：文件夹形态（index.html + images/），保存对话框选的是文件夹名 */
   if (type === 'html') {
-    const r = await dialog.showSaveDialog(mainWindow, {
+    const r = await dialog.showSaveDialog(mainWindow!, {
       title: '导出 HTML（将生成文件夹：index.html + images）',
       defaultPath: path.join(app.getPath('documents'), `日记导出-${stamp}`),
       buttonLabel: '导出到此处',
@@ -309,7 +310,7 @@ ipcMain.handle('export:run', async (_e, type, opts) => {
   const cfg = type === 'pdf'
     ? { title: '导出 PDF', name: `溯洄日记-${stamp}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] }
     : { title: '导出 Word', name: `溯洄日记-${stamp}.docx`, filters: [{ name: 'Word', extensions: ['docx'] }] }
-  const r = await dialog.showSaveDialog(mainWindow, {
+  const r = await dialog.showSaveDialog(mainWindow!, {
     title: cfg.title,
     defaultPath: path.join(app.getPath('documents'), cfg.name),
     filters: cfg.filters
@@ -329,7 +330,7 @@ ipcMain.handle('export:long-image', async (_e, entryId) => {
   if (!data) return { ok: false, error: '日记不存在' }
   const e = { ...data.entry, tags: data.tags.map((t) => t.name), media: data.media }
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  const r = await dialog.showSaveDialog(mainWindow, {
+  const r = await dialog.showSaveDialog(mainWindow!, {
     title: '生成长图',
     defaultPath: path.join(app.getPath('documents'), `日记长图-${e.title.slice(0, 12)}-${stamp}.png`),
     filters: [{ name: 'PNG 图片', extensions: ['png'] }]
@@ -349,7 +350,7 @@ ipcMain.handle('export:reveal', (_e, p) => { shell.showItemInFolder(p); return t
 ipcMain.handle('papers:list', () => getDao().listPapers())
 
 ipcMain.handle('papers:add-image', async (_e, name) => {
-  const r = await dialog.showOpenDialog(mainWindow, {
+  const r = await dialog.showOpenDialog(mainWindow!, {
     title: '选择信纸图片',
     properties: ['openFile'],
     filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }]
@@ -389,38 +390,43 @@ ipcMain.handle('papers:remove', (_e, id) => {
   return getDao().deletePaper(id)
 })
 
-function hexToRgba(hex, alpha) {
+function hexToRgba(hex: string, alpha: number): string {
   const n = parseInt(hex.slice(1), 16)
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`
 }
 
 /* ---------- 提醒写日记（Phase 8） ---------- */
 
-const REMINDER = { enabled: false, time: '21:00', lastDay: null }
+interface ReminderConfig {
+  enabled: boolean
+  time: string
+  lastDay: string | null
+}
+const REMINDER: ReminderConfig = { enabled: false, time: '21:00', lastDay: null }
 
-function getSetting(key, fallback = null) {
-  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key)
+function getSetting(key: string, fallback: string | null = null): string | null {
+  const row = getDb().prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)
   return row ? row.value : fallback
 }
-function setSetting(key, value) {
+function setSetting(key: string, value: string): void {
   getDb()
-    .prepare(
+    .prepare<[string, string], never>(
       `INSERT INTO settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`
     )
-    .run(key, String(value))
+    .run(key, value)
 }
 
-async function loadReminderSettings() {
+async function loadReminderSettings(): Promise<void> {
   REMINDER.enabled = getSetting('reminder.enabled', '0') === '1'
-  REMINDER.time = getSetting('reminder.time', '21:00')
+  REMINDER.time = getSetting('reminder.time', '21:00') || '21:00'
   REMINDER.lastDay = getSetting('reminder.lastDay', null)
 }
 
-function checkReminder() {
+function checkReminder(): void {
   if (!REMINDER.enabled) return
   const now = new Date()
-  const p = (n) => String(n).padStart(2, '0')
+  const p = (n: number) => String(n).padStart(2, '0')
   const hhmm = `${p(now.getHours())}:${p(now.getMinutes())}`
   if (hhmm < REMINDER.time) return // 还没到提醒时间
   const today = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
@@ -442,7 +448,7 @@ function checkReminder() {
   n.show()
 }
 
-function startReminderScheduler() {
+function startReminderScheduler(): void {
   loadReminderSettings().then(() => checkReminder()).catch(() => {})
   setInterval(() => {
     try { checkReminder() } catch { /* dao 未就绪等极端情况 */ }
@@ -468,11 +474,20 @@ ipcMain.handle('reminder:set', async (_e, { enabled, time }) => {
 
 /* ---------- 自动备份设置（定时 / 退出 / 目录 / 保留份数，Phase 9 追加） ---------- */
 
-const BACKUP = {
-  dir: '',            // 自定义备份目录；空 = 应用数据目录 backups/
-  interval: 6,        // 运行中定时备份间隔（小时），0 = 关闭
-  onExit: true,       // 退出时自动备份
-  keep: 7,            // 自动备份保留份数
+interface BackupConfig {
+  dir: string            // 自定义备份目录；空 = 应用数据目录 backups/
+  interval: number       // 运行中定时备份间隔（小时），0 = 关闭
+  onExit: boolean        // 退出时自动备份
+  keep: number           // 自动备份保留份数
+  timer: NodeJS.Timeout | null
+  effectiveDir(): string
+}
+
+const BACKUP: BackupConfig = {
+  dir: '',
+  interval: 6,
+  onExit: true,
+  keep: 7,
   timer: null,
   effectiveDir() {
     if (this.dir && fs.existsSync(this.dir)) return this.dir
@@ -480,14 +495,14 @@ const BACKUP = {
   }
 }
 
-function loadBackupSettings() {
+function loadBackupSettings(): void {
   BACKUP.dir = getSetting('backup.dir', '') || ''
   BACKUP.interval = Math.max(0, Number(getSetting('backup.interval', '6')) || 0)
   BACKUP.onExit = getSetting('backup.on_exit', '1') === '1'
   BACKUP.keep = Math.min(30, Math.max(3, Number(getSetting('backup.keep', '7')) || 7))
 }
 
-function scheduleAutoBackup() {
+function scheduleAutoBackup(): void {
   if (BACKUP.timer) { clearInterval(BACKUP.timer); BACKUP.timer = null }
   if (!BACKUP.interval) return
   BACKUP.timer = setInterval(async () => {
@@ -495,7 +510,7 @@ function scheduleAutoBackup() {
       const r = await autoBackup(BACKUP.effectiveDir(), BACKUP.keep)
       console.log(`[备份] 定时备份完成：${r.file}`)
     } catch (e) {
-      console.warn('[备份] 定时备份失败：', e?.message || e)
+      console.warn('[备份] 定时备份失败：', (e as { message?: string })?.message || e)
     }
   }, BACKUP.interval * 3600 * 1000)
 }
@@ -532,7 +547,7 @@ ipcMain.handle('backup:set-settings', (_e, patch) => {
 })
 
 ipcMain.handle('backup:choose-dir', async () => {
-  const r = await dialog.showOpenDialog(mainWindow, {
+  const r = await dialog.showOpenDialog(mainWindow!, {
     title: '选择自动备份目录',
     properties: ['openDirectory', 'createDirectory']
   })
@@ -544,9 +559,9 @@ ipcMain.handle('backup:choose-dir', async () => {
 
 ipcMain.handle('backup:create', async () => {
   const d = new Date()
-  const p = (n) => String(n).padStart(2, '0')
+  const p = (n: number) => String(n).padStart(2, '0')
   const name = `suhui-backup-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.zip`
-  const r = await dialog.showSaveDialog(mainWindow, {
+  const r = await dialog.showSaveDialog(mainWindow!, {
     title: '备份到哪里',
     defaultPath: path.join(app.getPath('documents'), name),
     filters: [{ name: 'ZIP 备份', extensions: ['zip'] }]
@@ -557,7 +572,7 @@ ipcMain.handle('backup:create', async () => {
 })
 
 ipcMain.handle('backup:pick', async () => {
-  const r = await dialog.showOpenDialog(mainWindow, {
+  const r = await dialog.showOpenDialog(mainWindow!, {
     title: '选择备份文件',
     properties: ['openFile'],
     filters: [{ name: 'ZIP 备份', extensions: ['zip'] }]
@@ -583,7 +598,7 @@ ipcMain.handle('backup:create-now', async () => {
     const r = await backupNow(BACKUP.effectiveDir())
     return { ok: true, ...r }
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) }
+    return { ok: false, error: String((e as { message?: string })?.message || e) }
   }
 })
 
@@ -592,18 +607,18 @@ ipcMain.handle('backup:delete', (_e, file) => {
   try {
     return deleteBackup(BACKUP.effectiveDir(), String(file || ''))
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) }
+    return { ok: false, error: String((e as { message?: string })?.message || e) }
   }
 })
 
 ipcMain.handle('backup:validate', (_e, zipPath) => {
-  try { return validateBackup(zipPath) } catch (e) { return { ok: false, error: String(e?.message || e) } }
+  try { return validateBackup(zipPath) } catch (e) { return { ok: false, error: String((e as { message?: string })?.message || e) } }
 })
 
 /* ---------- Markdown 导入（两段式：先解析摘要，确认后写入） ---------- */
 
 ipcMain.handle('import:pick', async () => {
-  const r = await dialog.showOpenDialog(mainWindow, {
+  const r = await dialog.showOpenDialog(mainWindow!, {
     title: '选择 Markdown 日记文件',
     properties: ['openFile'],
     filters: [{ name: 'Markdown / 文本', extensions: ['md', 'markdown', 'txt'] }]
@@ -612,7 +627,7 @@ ipcMain.handle('import:pick', async () => {
   try {
     return importPick(r.filePaths[0])
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) }
+    return { ok: false, error: String((e as { message?: string })?.message || e) }
   }
 })
 
@@ -620,7 +635,7 @@ ipcMain.handle('import:run', (_e, mdPath) => {
   try {
     return importRun(getDao(), getDb(), mdPath)
   } catch (e) {
-    return { ok: false, error: String(e?.message || e) }
+    return { ok: false, error: String((e as { message?: string })?.message || e) }
   }
 })
 
@@ -639,19 +654,19 @@ ipcMain.handle('tag:list-all', () => getDao().listAllTags())
 
 /* ---------- 媒体（原图直存、不压缩） ---------- */
 ipcMain.handle('media:pick-and-add', async (_e, entryId) => {
-  const r = await dialog.showOpenDialog(mainWindow, {
+  const r = await dialog.showOpenDialog(mainWindow!, {
     title: '选择图片（原图保存，不压缩）',
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }]
   })
   if (r.canceled || !r.filePaths.length) return { added: [], skipped: [] }
   const dao = getDao()
-  const added = []
-  const skipped = []
+  const added: MediaRow[] = []
+  const skipped: string[] = []
   for (const p of r.filePaths) {
     const res = dao.addMediaFile(entryId, p)
-    if (res.added) added.push(res.added)
-    else skipped.push(res.skipped)
+    if ('added' in res && res.added) added.push(res.added)
+    else skipped.push((res as { skipped: string }).skipped)
   }
   return { added, skipped }
 })

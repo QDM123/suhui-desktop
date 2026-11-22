@@ -4,26 +4,38 @@
      `![alt](相对路径)` 图片行复制入 media 库（原图直存，不压缩）
    - 两段式：importPick 只解析摘要（不写入），importRun 才落库
    - 重复导入保护：同日 + 同首行（前 50 字）的条目自动跳过
-   - 依赖注入（dao/db 由调用方传入）：可在纯 Node 环境直测
+   - 依赖注入（dao/db 由调用方传入）
    ============================================================ */
 import fs from 'node:fs'
 import path from 'node:path'
+import type Database from 'better-sqlite3'
+import type { Dao } from './db/dao.ts'
+import type { ImportPickResult, ImportRunResult } from '../src/types/domain'
+
+type Db = InstanceType<typeof Database>
 
 /** 节标题：1-3 级 # 开头 + 日期（后可跟星期等任意文本） */
 const SECTION_RE = /^#{1,3}\s+(\d{4}-\d{2}-\d{2})\b.*$/
 /** 独占一行的图片引用：![alt](path)，去掉 ?查询 与 #锚点 */
 const IMG_LINE_RE = /^!\[[^\]]*\]\(([^)]+)\)$/
 
+interface ParsedEntry {
+  day: string
+  textLines: string[]
+  images: string[]
+  text: string
+}
+
 /** 解析 markdown 文本 → 条目数组（不接触数据库与磁盘图片） */
-export function parseMarkdown(text) {
-  const entries = []
-  let cur = null
+export function parseMarkdown(text: string): ParsedEntry[] {
+  const entries: ParsedEntry[] = []
+  let cur: ParsedEntry | null = null
   for (const raw of String(text).split(/\r?\n/)) {
     const line = raw.trimEnd()
     const sec = line.match(SECTION_RE)
     if (sec) {
       if (cur) entries.push(cur)
-      cur = { day: sec[1], textLines: [], images: [] }
+      cur = { day: sec[1], textLines: [], images: [], text: '' }
       continue
     }
     if (!cur) continue // 文件头部说明（# 大标题、> 引言、---）跳过
@@ -50,19 +62,19 @@ export function parseMarkdown(text) {
 }
 
 /** 指纹首行：第一个非空行，截前 50 字 */
-function firstLine(text) {
+function firstLine(text: string | null | undefined): string {
   const first = (text || '').split('\n').map((s) => s.trim()).find(Boolean) || ''
   return first.slice(0, 50)
 }
 
-function resolveImg(mdDir, src) {
+function resolveImg(mdDir: string, src: string): string {
   let decoded = src
   try { decoded = decodeURIComponent(src) } catch { /* 保留原样 */ }
   return path.resolve(mdDir, decoded)
 }
 
 /** 第一段：解析摘要（不写入）。返回 { ok, entries, images, missing } 或 { ok:false, error } */
-export function importPick(mdPath) {
+export function importPick(mdPath: string): ImportPickResult {
   const text = fs.readFileSync(mdPath, 'utf8')
   const entries = parseMarkdown(text)
   if (!entries.length) {
@@ -81,13 +93,13 @@ export function importPick(mdPath) {
 }
 
 /** 第二段：执行导入（写入）。跳过重复条目与缺失图片，逐条落库 */
-export function importRun(dao, db, mdPath) {
+export function importRun(dao: Dao, db: Db, mdPath: string): ImportRunResult {
   const text = fs.readFileSync(mdPath, 'utf8')
   const entries = parseMarkdown(text)
 
   /* 已有日记指纹（含本次导入，防止文件内/二次导入重复） */
-  const seen = new Set(
-    db.prepare('SELECT day, content FROM entries WHERE deleted = 0').all()
+  const seen = new Set<string>(
+    db.prepare<[], { day: string; content: string }>('SELECT day, content FROM entries WHERE deleted = 0').all()
       .map((r) => `${r.day}|${firstLine(r.content)}`)
   )
 
@@ -113,7 +125,7 @@ export function importRun(dao, db, mdPath) {
       }
       try {
         const r = dao.addMediaFile(id, abs, path.basename(abs))
-        if (r.added) imagesAdded++
+        if ('added' in r && r.added) imagesAdded++
         else imagesMissing++
       } catch {
         imagesMissing++
