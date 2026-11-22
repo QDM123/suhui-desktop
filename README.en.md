@@ -85,14 +85,9 @@ suhui-desktop/
 
 If Suhui Desktop helps you, feel free to buy the author a coffee ☕
 
-<details>
-<summary>📱 WeChat appreciation QR code (click to expand)</summary>
-
 <p align="center">
   <img src="docs/donate/wechat.png" alt="WeChat QR" width="260">
 </p>
-
-</details>
 
 ## License
 
