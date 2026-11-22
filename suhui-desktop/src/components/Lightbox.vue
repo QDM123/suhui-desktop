@@ -39,15 +39,17 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { PropType } from 'vue'
+import type { MediaRow } from '../types/domain'
 
 const props = defineProps({
   visible: Boolean,
-  media: { type: Array, default: () => [] },
+  media: { type: Array as PropType<MediaRow[]>, default: () => [] },
   index: { type: Number, default: 0 }
 })
-const emit = defineEmits(['close', 'move'])
+const emit = defineEmits<{ close: []; move: [d: number] }>()
 
 const scale = ref(1)
 const rot = ref(0)
@@ -74,17 +76,17 @@ function reset() {
   px.value = 0
   py.value = 0
 }
-function zoomBy(d) {
+function zoomBy(d: number) {
   scale.value = Math.min(6, Math.max(0.2, Math.round((scale.value + d) * 100) / 100))
 }
-function onWheel(e) {
+function onWheel(e: WheelEvent) {
   zoomBy(e.deltaY < 0 ? 0.2 : -0.2)
 }
-function move(d) {
+function move(d: number) {
   reset()
   emit('move', d)
 }
-function onPointerDown(e) {
+function onPointerDown(e: PointerEvent) {
   if (scale.value <= 1) return
   dragging.value = true
   moved = false
@@ -92,9 +94,9 @@ function onPointerDown(e) {
   startY = e.clientY
   baseX = px.value
   baseY = py.value
-  e.target.setPointerCapture(e.pointerId)
+  ;(e.target as Element).setPointerCapture(e.pointerId)
 }
-function onPointerMove(e) {
+function onPointerMove(e: PointerEvent) {
   if (!dragging.value) return
   const dx = e.clientX - startX
   const dy = e.clientY - startY
@@ -111,7 +113,7 @@ function onImgClick() {
   emit('close')
 }
 
-function onKey(e) {
+function onKey(e: KeyboardEvent) {
   if (!props.visible) return
   if (e.key === 'Escape') emit('close')
   else if (e.key === 'ArrowLeft') move(-1)

@@ -20,7 +20,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { SCOPE_NAMES, shortcutGroups } from '../shortcuts'
 
 const groups = shortcutGroups()

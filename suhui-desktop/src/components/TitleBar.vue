@@ -8,7 +8,7 @@
         ref="searchRef"
         :value="tl.searchQ"
         placeholder="搜索日记：标题 / 正文 / 标签（Ctrl+F）"
-        @input="onInput($event.target.value)"
+        @input="onInput($event)"
         @keydown.escape="clearSearch"
       >
       <button v-if="tl.searchQ" class="tb-search-clear" title="清空" @click="clearSearch">✕</button>
@@ -26,13 +26,13 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTimelineStore } from '../stores/timeline'
 import { useAppStore } from '../stores/app'
 
-const searchRef = ref(null)
+const searchRef = ref<HTMLInputElement | null>(null)
 const win = window.api.window
 const route = useRoute()
 const router = useRouter()
@@ -40,9 +40,10 @@ const tl = useTimelineStore()
 const app = useAppStore()
 
 /* 防抖 300ms（Phase 3）：词存 timeline store，标签点击等入口可联动 */
-let timer = null
-function onInput(v) {
-  clearTimeout(timer)
+let timer: ReturnType<typeof setTimeout> | null = null
+function onInput(e: Event) {
+  const v = (e.target as HTMLInputElement).value
+  clearTimeout(timer ?? undefined)
   timer = setTimeout(async () => {
     if (v && route.path !== '/timeline') router.push('/timeline')
     await tl.setSearch(v)
@@ -50,11 +51,11 @@ function onInput(v) {
 }
 
 function clearSearch() {
-  clearTimeout(timer)
+  clearTimeout(timer ?? undefined)
   tl.setSearch('')
 }
 
-function onKeydown(e) {
+function onKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
     searchRef.value?.focus()
@@ -75,7 +76,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown)
   window.removeEventListener('app:focus-search', onFocusSearch)
-  clearTimeout(timer)
+  clearTimeout(timer ?? undefined)
 })
 </script>
 

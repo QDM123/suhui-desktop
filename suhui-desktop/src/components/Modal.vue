@@ -15,14 +15,21 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
+import type { PropType } from 'vue'
+
+interface ModalButton {
+  text: string
+  cls?: string
+}
+
 defineProps({
   visible: Boolean,
   title: { type: String, default: '' },
   buttons: {
-    type: Array,
+    type: Array as PropType<ModalButton[]>,
     default: () => [{ text: '确定', cls: 'primary' }]
   }
 })
-defineEmits(['close', 'action'])
+defineEmits<{ close: []; action: [b: ModalButton] }>()
 </script>

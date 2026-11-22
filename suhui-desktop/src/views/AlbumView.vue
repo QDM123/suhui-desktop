@@ -9,7 +9,7 @@
         v-for="m in items"
         :key="m.id"
         class="ph"
-        :title="m.orig_name"
+        :title="m.orig_name ?? undefined"
         @click="jump(m.entry_id)"
       >
         <img :src="`media://${m.file_name}`" alt="" loading="lazy">
@@ -25,16 +25,17 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTimelineStore } from '../stores/timeline'
+import type { AlbumMediaItem } from '../types/domain'
 
 const router = useRouter()
 const tl = useTimelineStore()
-const items = ref([])
+const items = ref<AlbumMediaItem[]>([])
 
-async function jump(entryId) {
+async function jump(entryId: string) {
   await tl.setSearch('')
   if (tl.filterCat) await tl.setFilter(tl.filterCat)
   tl.pendingSelectId = entryId

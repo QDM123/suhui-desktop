@@ -35,22 +35,23 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '../stores/ui'
 import Modal from '../components/Modal.vue'
+import type { TagWithUsed } from '../types/domain'
 
 const router = useRouter()
 
 /* 从哪进入回哪：无来源时回设置 */
-function back() { router.push(router.options.history.state.back || '/settings') }
+function back() { router.push((router.options.history.state.back as string | null) || '/settings') }
 const ui = useUiStore()
 
-const list = ref([])
-const editingId = ref(null)
+const list = ref<TagWithUsed[]>([])
+const editingId = ref<number | null>(null)
 const editingName = ref('')
-const mergeFrom = ref(null)
+const mergeFrom = ref<number | null>(null)
 
 const mergeFromName = computed(() => list.value.find((t) => t.id === mergeFrom.value)?.name || '')
 const mergeTargets = computed(() => list.value.filter((t) => t.id !== mergeFrom.value))
@@ -60,12 +61,12 @@ async function load() {
 }
 onMounted(load)
 
-function startRename(t) {
+function startRename(t: TagWithUsed) {
   editingId.value = t.id
   editingName.value = t.name
 }
 
-async function saveRename(t) {
+async function saveRename(t: TagWithUsed) {
   const name = editingName.value.trim().replace(/^#/, '')
   editingId.value = null
   if (!name || name === t.name) return
@@ -73,15 +74,15 @@ async function saveRename(t) {
     await window.api.tag.rename(t.id, name)
     await load()
   } catch (e) {
-    ui.showToast(e?.message || '重命名失败')
+    ui.showToast((e as { message?: string } | null)?.message || '重命名失败')
   }
 }
 
-function openMerge(t) {
+function openMerge(t: TagWithUsed) {
   mergeFrom.value = t.id
 }
 
-async function doMerge(target) {
+async function doMerge(target: TagWithUsed) {
   const fromName = mergeFromName.value
   const okAsk = await ui.askConfirm({
     title: '合并标签',
@@ -90,16 +91,16 @@ async function doMerge(target) {
   })
   if (!okAsk) return
   try {
-    await window.api.tag.merge(mergeFrom.value, target.id)
+    await window.api.tag.merge(mergeFrom.value as number, target.id)
     mergeFrom.value = null
     ui.showToast('合并完成')
     await load()
   } catch (e) {
-    ui.showToast(e?.message || '合并失败')
+    ui.showToast((e as { message?: string } | null)?.message || '合并失败')
   }
 }
 
-async function remove(t) {
+async function remove(t: TagWithUsed) {
   const okAsk = await ui.askConfirm({
     title: '删除标签',
     body: `确定删除未被使用的标签 #${t.name}？`,
@@ -111,7 +112,7 @@ async function remove(t) {
     await window.api.tag.remove(t.id)
     await load()
   } catch (e) {
-    ui.showToast(e?.message || '删除失败')
+    ui.showToast((e as { message?: string } | null)?.message || '删除失败')
   }
 }
 </script>

@@ -13,7 +13,7 @@
   <ShortcutsQuick :visible="quickShow" @close="quickShow = false" />
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from './stores/app'
@@ -31,12 +31,13 @@ const router = useRouter()
 const route = useRoute()
 const quickShow = ref(false)
 
-function isTypingTarget(t) {
-  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+function isTypingTarget(t: EventTarget | null): boolean {
+  const el = t as HTMLElement | null
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
 }
 
 /* 全局快捷键：从注册表匹配 global 作用域（写作页快捷键在 WriteView 内处理） */
-function onGlobalKeydown(e) {
+function onGlobalKeydown(e: KeyboardEvent) {
   /* 速查弹窗打开时：Esc 关闭 */
   if (quickShow.value && e.key === 'Escape') {
     quickShow.value = false

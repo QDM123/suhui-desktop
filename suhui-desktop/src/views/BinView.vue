@@ -19,20 +19,21 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useUiStore } from '../stores/ui'
 import { useAppStore } from '../stores/app'
+import type { BinItem } from '../types/domain'
 
 const ui = useUiStore()
 const app = useAppStore()
-const list = ref([])
+const list = ref<BinItem[]>([])
 
 async function load() {
   list.value = await window.api.bin.list()
 }
 
-async function restore(e) {
+async function restore(e: BinItem) {
   const r = await window.api.bin.restore(e.id)
   ui.showToast(r.ok ? '恢复成功' : '恢复失败')
   if (r.ok) {
@@ -41,7 +42,7 @@ async function restore(e) {
   }
 }
 
-async function purge(e) {
+async function purge(e: BinItem) {
   const okAsk = await ui.askConfirm({
     title: '彻底删除',
     body: '彻底删除后无法恢复，确定吗？',

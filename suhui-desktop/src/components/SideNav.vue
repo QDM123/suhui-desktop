@@ -29,7 +29,7 @@
   </nav>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
 import { NAV_ITEMS, FOOTER_ITEMS } from '../router'
 import { useAppStore } from '../stores/app'

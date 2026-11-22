@@ -22,17 +22,18 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
 import { shortcutGroups } from '../shortcuts'
+import type { ShortcutGroup } from '../shortcuts'
 
 defineProps({ visible: Boolean })
-defineEmits(['close'])
+defineEmits<{ close: [] }>()
 
 /* 双栏：左=全局操作，右=写作页+文本排版（与中心页同一注册表） */
-const cols = computed(() => {
+const cols = computed<ShortcutGroup[]>(() => {
   const gs = shortcutGroups()
-  const pick = (name) => gs.find((g) => g.name === name) || { name, items: [] }
+  const pick = (name: string): ShortcutGroup => gs.find((g) => g.name === name) || { name, items: [] }
   const writeAndFormat = {
     name: '写作页 / 排版',
     items: [...pick('写作页').items, ...pick('文本排版').items]

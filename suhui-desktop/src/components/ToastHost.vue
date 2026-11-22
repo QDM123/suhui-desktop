@@ -14,7 +14,7 @@
   </Modal>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { useUiStore } from '../stores/ui'
 import Modal from './Modal.vue'
 
