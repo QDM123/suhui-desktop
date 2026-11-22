@@ -21,7 +21,7 @@
           >
             <span class="n">{{ c.num }}</span>
             <span v-for="(t, i) in c.previews" :key="i" class="cal-ev">{{ t }}</span>
-            <span v-if="c.more > 0" class="cal-ev more">+{{ c.more }} 篇</span>
+            <span v-if="(c.more ?? 0) > 0" class="cal-ev more">+{{ c.more }} 篇</span>
             <span v-if="c.isTunnel" class="cal-ev more">时光隧道</span>
           </div>
         </div>
@@ -72,13 +72,14 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCalendarStore } from '../stores/calendar'
 import { useTimelineStore } from '../stores/timeline'
 import { useUiStore } from '../stores/ui'
 import { weatherOf, fmtDay } from '../constants'
+import type { RangeEntry } from '../types/domain'
 
 const MONTH_CN = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月']
 const WEEK_HEADERS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -89,17 +90,29 @@ const tl = useTimelineStore()
 const ui = useUiStore()
 
 const todayKey = fmtDay()
-const byDay = ref(new Map())     // day -> entries[]
-const latestW = ref(null)
+const byDay = ref(new Map<string, RangeEntry[]>())     // day -> entries[]
+const latestW = ref<number | null>(null)
 
-const pad2 = (n) => String(n).padStart(2, '0')
-const keyOf = (y, m, d) => `${y}-${pad2(m + 1)}-${pad2(d)}`
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+const keyOf = (y: number, m: number, d: number): string => `${y}-${pad2(m + 1)}-${pad2(d)}`
+
+/* 月格子：补位空格只有 blank + key，其余字段缺失（模板按 undefined 渲染为空） */
+interface CalCell {
+  key: string
+  blank?: boolean
+  num?: number
+  isToday?: boolean
+  isFuture?: boolean
+  isTunnel?: boolean
+  previews?: string[]
+  more?: number
+}
 
 const weatherLabel = computed(() => {
   const w = latestW.value != null ? weatherOf(latestW.value) : null
   return w ? `${w.icon} ${w.name}` : '—'
 })
-const dayEntries = computed(() => byDay.value.get(cal.selectedDay) || [])
+const dayEntries = computed<RangeEntry[]>(() => (cal.selectedDay ? byDay.value.get(cal.selectedDay) || [] : []))
 const todayCount = computed(() => byDay.value.get(todayKey)?.length || 0)
 
 const prevLabel = computed(() => MONTH_CN[(cal.month + 11) % 12])
@@ -114,12 +127,12 @@ const selectedLabel = computed(() => {
 })
 
 /* 月格子：含前后补位空格 */
-const cells = computed(() => {
+const cells = computed<CalCell[]>(() => {
   const y = cal.year
   const m = cal.month
   const first = new Date(y, m, 1)
   const dim = new Date(y, m + 1, 0).getDate()
-  const out = []
+  const out: CalCell[] = []
   for (let i = 0; i < first.getDay(); i++) out.push({ blank: true, key: `pad-${i}` })
   for (let d = 1; d <= dim; d++) {
     const key = keyOf(y, m, d)
@@ -140,7 +153,7 @@ const cells = computed(() => {
 })
 
 /* 时光隧道判定（月视图）：所在周（周日~周六）整周无日记且整周已过去 */
-function weekAllBlankAndPast(y, m, d) {
+function weekAllBlankAndPast(y: number, m: number, d: number): boolean {
   const dt = new Date(y, m, d)
   const weekStart = new Date(dt)
   weekStart.setDate(dt.getDate() - dt.getDay())
@@ -167,10 +180,10 @@ async function loadMonth() {
     keyOf(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate()),
     keyOf(gridEnd.getFullYear(), gridEnd.getMonth(), gridEnd.getDate())
   )
-  const map = new Map()
+  const map = new Map<string, RangeEntry[]>()
   for (const r of rows) {
     if (!map.has(r.day)) map.set(r.day, [])
-    map.get(r.day).push(r)
+    map.get(r.day)!.push(r)
   }
   byDay.value = map
   latestW.value = await window.api.diary.latestWeather()
@@ -199,7 +212,7 @@ function nextMonth() {
 }
 
 /* 点击四分支（报告 §4.2 逐字文案） */
-async function clickCell(c) {
+async function clickCell(c: CalCell) {
   if (c.blank) return
   if (c.isFuture) return ui.showToast('未来不可写哦')
   const entries = byDay.value.get(c.key) || []
@@ -233,7 +246,7 @@ async function clickCell(c) {
   }
 }
 
-async function jumpToEntry(id) {
+async function jumpToEntry(id: string) {
   await tl.setSearch('')
   if (tl.filterCat) await tl.setFilter(tl.filterCat)
   tl.pendingSelectId = id

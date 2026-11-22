@@ -70,7 +70,7 @@ export const useTimelineStore = defineStore('timeline', {
       const id = this.selectedId
       this.reader = await window.api.diary.get(id)
     },
-    async setFilter(catId: number) {
+    async setFilter(catId: number | null) {
       this.filterCat = this.filterCat === catId ? null : catId
       await this.load()
       if (!this.list.some((e) => e.id === this.selectedId)) {

@@ -36,35 +36,36 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '../stores/ui'
+import type { BackupItem } from '../types/domain'
 
 const router = useRouter()
 const ui = useUiStore()
-const list = ref([])
+const list = ref<BackupItem[]>([])
 const dir = ref('')
 const busy = ref(false)
 
 const totalSize = computed(() => list.value.reduce((s, b) => s + b.size, 0))
 
 /* 从哪进入回哪：无来源时回设置 */
-function back() { router.push(router.options.history.state.back || '/settings') }
+function back() { router.push((router.options.history.state.back as string | null) || '/settings') }
 
-function typeLabel(t) {
+function typeLabel(t: BackupItem['type']): string {
   return t === 'snapshot' ? '每日快照' : t === 'auto' ? '自动' : '手动'
 }
 
-function fmtSize(n) {
+function fmtSize(n: number): string {
   if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(1) + ' GB'
   if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB'
   return Math.max(1, Math.round(n / 1024)) + ' KB'
 }
 
-function fmtWhen(ts) {
+function fmtWhen(ts: number): string {
   const d = new Date(ts)
-  const p = (n) => String(n).padStart(2, '0')
+  const p = (n: number) => String(n).padStart(2, '0')
   const hm = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
   const now = new Date()
   const yest = new Date(Date.now() - 86400000)
@@ -73,7 +74,7 @@ function fmtWhen(ts) {
   return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
 }
 
-function fmtAgo(ts) {
+function fmtAgo(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000)
   if (s < 60) return '刚刚'
   if (s < 3600) return Math.floor(s / 60) + ' 分钟前'
@@ -100,13 +101,13 @@ async function createNow() {
       ui.showToast(r.error || '备份失败')
     }
   } catch (e) {
-    ui.showToast('备份失败：' + (e?.message || e))
+    ui.showToast('备份失败：' + String((e as { message?: string } | null)?.message || e))
   } finally {
     busy.value = false
   }
 }
 
-async function restore(b) {
+async function restore(b: BackupItem) {
   if (busy.value) return
   busy.value = true
   try {
@@ -130,7 +131,7 @@ async function restore(b) {
   }
 }
 
-async function remove(b) {
+async function remove(b: BackupItem) {
   const okAsk = await ui.askConfirm({
     title: '删除备份',
     body: `确定删除这份备份吗？\n${fmtWhen(b.mtime)} · ${fmtSize(b.size)}\n\n删除后不可恢复。`,

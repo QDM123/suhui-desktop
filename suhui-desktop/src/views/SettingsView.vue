@@ -55,7 +55,7 @@
       <div v-if="reminder.enabled" class="set-row">
         <span>⏰</span>
         <span class="grow">提醒时间<div class="s">今天没有日记时才会提醒</div></span>
-        <input type="time" :value="reminder.time" @change="setReminderTime($event.target.value)">
+        <input type="time" :value="reminder.time" @change="setReminderTime($event)">
       </div>
     </div>
 
@@ -100,7 +100,7 @@
       <div class="set-row">
         <span>⏱</span>
         <span class="grow">定时备份<div class="s">应用运行期间每隔 N 小时自动快照一次（静默完成）</div></span>
-        <select class="bk-select" :value="bk.interval" @change="setIntervalHours($event.target.value)">
+        <select class="bk-select" :value="bk.interval" @change="setIntervalHours($event)">
           <option :value="0">关闭</option>
           <option :value="4">每 4 小时</option>
           <option :value="6">每 6 小时</option>
@@ -121,7 +121,7 @@
           min="3"
           max="30"
           :value="bk.keep"
-          @change="setKeep($event.target.value)"
+          @change="setKeep($event)"
         >
       </div>
     </div>
@@ -158,7 +158,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
@@ -186,7 +186,7 @@ async function loadBk() {
 
 async function chooseBkDir() {
   const r = await window.api.backup.chooseDir()
-  if (r.canceled) return
+  if ('canceled' in r) return
   await window.api.backup.setSettings({ dir: r.path })
   await loadBk()
   ui.showToast('自动备份将保存到：' + r.path)
@@ -198,7 +198,8 @@ async function resetBkDir() {
   ui.showToast('已恢复默认备份目录')
 }
 
-async function setIntervalHours(v) {
+async function setIntervalHours(e: Event) {
+  const v = (e.target as HTMLSelectElement).value
   await window.api.backup.setSettings({ interval: Number(v) })
   await loadBk()
   ui.showToast(Number(v) ? `已改为每 ${v} 小时自动备份` : '已关闭定时备份')
@@ -210,7 +211,8 @@ async function toggleOnExit() {
   ui.showToast(bk.onExit ? '退出时将自动备份' : '已关闭退出备份')
 }
 
-async function setKeep(v) {
+async function setKeep(e: Event) {
+  const v = (e.target as HTMLInputElement).value
   const n = Math.min(30, Math.max(3, Number(v) || 7))
   await window.api.backup.setSettings({ keep: n })
   await loadBk()
@@ -250,7 +252,8 @@ async function toggleReminder() {
   }
 }
 
-async function setReminderTime(t) {
+async function setReminderTime(e: Event) {
+  const t = (e.target as HTMLInputElement).value
   if (!t) return
   reminder.time = t
   const r = await window.api.reminder.set({ enabled: reminder.enabled, time: t })
@@ -262,12 +265,12 @@ async function createBackup() {
   busy.value = true
   ui.showToast('正在备份…')
   try {
-    const r = await window.api.backup.create()
+    const r: { canceled?: boolean; ok?: boolean; path?: string; error?: string } = await window.api.backup.create()
     if (r.canceled) ui.showToast('已取消')
-    else if (r.ok) ui.showToast('备份完成：' + r.path.split(/[\\/]/).pop())
+    else if (r.ok && r.path) ui.showToast('备份完成：' + r.path.split(/[\\/]/).pop())
     else ui.showToast(r.error || '备份失败')
   } catch (e) {
-    ui.showToast('备份失败：' + (e?.message || e))
+    ui.showToast('备份失败：' + String((e as { message?: string } | null)?.message || e))
   } finally {
     busy.value = false
   }
@@ -278,7 +281,7 @@ async function pickBackup() {
   busy.value = true
   try {
     const r = await window.api.backup.pick()
-    if (r.canceled) return
+    if ('canceled' in r) return
     if (!r.ok) {
       ui.askConfirm({ title: '备份无效', body: r.error, cancelText: '关闭' })
       return
@@ -303,7 +306,7 @@ async function pickImport() {
   busy.value = true
   try {
     const r = await window.api.import.pick()
-    if (r.canceled) return
+    if ('canceled' in r) return
     if (!r.ok) {
       ui.askConfirm({ title: '无法导入', body: r.error, cancelText: '关闭' })
       return

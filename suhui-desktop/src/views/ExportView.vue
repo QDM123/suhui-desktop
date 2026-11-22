@@ -98,27 +98,28 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useTimelineStore } from '../stores/timeline'
 import { useUiStore } from '../stores/ui'
 import { WEEK_CN, fmtDay } from '../constants'
 import Modal from '../components/Modal.vue'
+import type { CategoryWithCount, ExportFileRow, ExportOptions, ExportPreview, ExportType } from '../types/domain'
 
 const tl = useTimelineStore()
 const ui = useUiStore()
 
-const categories = ref([])
-const pickedCats = ref([])
+const categories = ref<CategoryWithCount[]>([])
+const pickedCats = ref<number[]>([])
 const range = ref('all')
 const fromDay = ref('')
 const toDay = ref('')
-const busy = ref(null)
-const history = ref([])
+const busy = ref<ExportType | 'image' | null>(null)
+const history = ref<ExportFileRow[]>([])
 
 const previewShow = ref(false)
-const preview = ref(null)
-const previewType = ref(null)
+const preview = ref<ExportPreview | null>(null)
+const previewType = ref<ExportType | null>(null)
 
 const RANGES = [
   { key: 'all', label: '全部' },
@@ -136,7 +137,7 @@ const catNames = computed(() => {
   return '分类：' + names.join('、')
 })
 
-function setRange(key) {
+function setRange(key: string) {
   range.value = key
   const now = new Date()
   const y = now.getFullYear()
@@ -159,22 +160,23 @@ function setRange(key) {
   /* custom：保留/让用户编辑现有日期 */
 }
 
-function toggleCat(id) {
+function toggleCat(id: number) {
   const i = pickedCats.value.indexOf(id)
   if (i >= 0) pickedCats.value.splice(i, 1)
   else pickedCats.value.push(id)
 }
-function baseName(p) { return p.split(/[\\/]/).pop() }
-function fmtSize(n) {
+function baseName(p: string): string { return p.split(/[\\/]/).pop() as string }
+function fmtSize(n: number | null): string {
   if (!n) return '—'
   return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB'
 }
-function typeIcon(t) {
-  return { pdf: '📄', word: '📝', html: '🌐', image: '🖼️' }[t] || '📄'
+const TYPE_ICONS: Record<string, string> = { pdf: '📄', word: '📝', html: '🌐', image: '🖼️' }
+function typeIcon(t: string): string {
+  return TYPE_ICONS[t] || '📄'
 }
 
 /** IPC 参数必须是普通对象/数组：Vue 响应式 Proxy 无法被 structured clone */
-function buildOpts() {
+function buildOpts(): ExportOptions {
   return {
     categoryIds: Array.from(pickedCats.value, Number),
     fromDay: fromDay.value || null,
@@ -186,7 +188,7 @@ async function loadHistory() {
   history.value = await window.api.export.history()
 }
 
-async function openPreview(type) {
+async function openPreview(type: ExportType) {
   if (busy.value) return
   if (fromDay.value && toDay.value && fromDay.value > toDay.value) {
     return ui.showToast('起始日期不能晚于结束日期')
@@ -198,27 +200,27 @@ async function openPreview(type) {
   previewShow.value = true
 }
 
-function onPreviewAction(b) {
+function onPreviewAction(b: { text: string; cls?: string }) {
   if (b.cls === 'primary') {
     previewShow.value = false
-    run(previewType.value)
+    run(previewType.value as ExportType)
   } else {
     previewShow.value = false
   }
 }
 
-async function run(type) {
+async function run(type: ExportType) {
   if (busy.value) return
   busy.value = type
   ui.showToast(type === 'pdf' ? '正在生成 PDF…' : type === 'word' ? '正在生成 Word…' : '正在生成 HTML…')
   try {
     const r = await window.api.export.run(type, buildOpts())
-    if (r.canceled) ui.showToast('已取消')
+    if ('canceled' in r) ui.showToast('已取消')
     else if (r.ok) ui.showToast('导出完成：' + baseName(r.path))
     else ui.showToast(r.error || '导出失败')
     await loadHistory()
   } catch (e) {
-    ui.showToast('导出失败：' + (e?.message || e))
+    ui.showToast('导出失败：' + String((e as { message?: string } | null)?.message || e))
   } finally {
     busy.value = null
   }
@@ -231,22 +233,22 @@ async function longImage() {
   ui.showToast('正在生成长图…')
   try {
     const r = await window.api.export.longImage(tl.selectedId)
-    if (r.canceled) ui.showToast('已取消')
+    if ('canceled' in r) ui.showToast('已取消')
     else if (r.ok) ui.showToast('长图已生成：' + baseName(r.path))
     else ui.showToast(r.error || '生成失败')
     await loadHistory()
   } catch (e) {
-    ui.showToast('生成失败：' + (e?.message || e))
+    ui.showToast('生成失败：' + String((e as { message?: string } | null)?.message || e))
   } finally {
     busy.value = null
   }
 }
 
-async function reveal(p) {
+async function reveal(p: string) {
   window.api.export.reveal(p)
 }
 
-async function removeRecord(h) {
+async function removeRecord(h: ExportFileRow) {
   const okAsk = await ui.askConfirm({
     title: '删除导出文件记录',
     body: `确定删除该导出记录？\n（仅移除记录，不删除磁盘上的文件）`,

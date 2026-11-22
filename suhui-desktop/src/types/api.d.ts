@@ -135,7 +135,7 @@ export interface SuhuiApi {
 
   papers: {
     list(): Promise<Paper[]>
-    addImage(name?: string): Promise<{ canceled: true } | { ok: true; paper: Paper }>
+    addImage(name?: string | null): Promise<{ canceled: true } | { ok: true; paper: Paper }>
     addGen(name: string, config: PaperGenInput): Promise<Paper & { config: PaperGenConfig }>
     remove(id: string): Promise<{ ok: true }>
   }

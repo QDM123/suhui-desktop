@@ -54,35 +54,36 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '../stores/ui'
 import { useAppStore } from '../stores/app'
+import type { CategoryWithCount } from '../types/domain'
 
 const router = useRouter()
 const ui = useUiStore()
 const app = useAppStore()
 
 const PALETTE = ['#00CCBB', '#8695B2', '#f0885a', '#7b7fd0', '#3aa76d', '#e05a7a', '#c9a227', '#4a5a72']
-const list = ref([])
+const list = ref<CategoryWithCount[]>([])
 const newName = ref('')
 const newColor = ref(PALETTE[0])
-const editingId = ref(null)
+const editingId = ref<number | null>(null)
 const editingName = ref('')
-const dragId = ref(null)
+const dragId = ref<number | null>(null)
 
 /* 拖拽排序：dragover 时实时换位，dragend 落库 */
-function onDragStart(c) {
+function onDragStart(c: CategoryWithCount) {
   dragId.value = c.id
 }
-function onDragOver(target, e) {
+function onDragOver(target: CategoryWithCount, e: DragEvent) {
   if (!dragId.value || dragId.value === target.id) return
   const from = list.value.findIndex((x) => x.id === dragId.value)
   const to = list.value.findIndex((x) => x.id === target.id)
   if (from < 0 || to < 0) return
   /* 根据指针在目标行的上/下半决定插入到前/后 */
-  const r = e.currentTarget.getBoundingClientRect()
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
   const after = e.clientY > r.top + r.height / 2
   const arr = list.value
   const [moved] = arr.splice(from, 1)
@@ -101,7 +102,7 @@ async function persistOrder() {
 }
 
 /* 从哪进入回哪：优先取路由来源；无来源（如刷新后直落本页）回时间轴 */
-function back() { router.push(router.options.history.state.back || '/timeline') }
+function back() { router.push((router.options.history.state.back as string | null) || '/timeline') }
 
 async function load() {
   list.value = await window.api.category.list()
@@ -120,16 +121,16 @@ async function add() {
     await load()
     app.loadStats()
   } catch (e) {
-    ui.showToast(e?.message || '添加失败')
+    ui.showToast((e as { message?: string } | null)?.message || '添加失败')
   }
 }
 
-function startRename(c) {
+function startRename(c: CategoryWithCount) {
   editingId.value = c.id
   editingName.value = c.name
 }
 
-async function saveName(c) {
+async function saveName(c: CategoryWithCount) {
   const name = editingName.value.trim()
   editingId.value = null
   if (!name || name === c.name) return
@@ -137,18 +138,18 @@ async function saveName(c) {
     await window.api.category.update(c.id, { name })
     await load()
   } catch (e) {
-    ui.showToast(e?.message || '改名失败')
+    ui.showToast((e as { message?: string } | null)?.message || '改名失败')
   }
 }
 
-async function cycleColor(c) {
+async function cycleColor(c: CategoryWithCount) {
   const i = PALETTE.indexOf(c.color)
   const next = PALETTE[(i + 1) % PALETTE.length]
   await window.api.category.update(c.id, { color: next })
   await load()
 }
 
-async function remove(c) {
+async function remove(c: CategoryWithCount) {
   if (c.id === 1) return ui.showToast('默认分类不可删除')
   let body = `确定删除分类「${c.name}」？`
   if (c.entry_count > 0) body = `「${c.name}」下有 ${c.entry_count} 篇日记，删除后它们将移入「生活」。` + body
@@ -161,7 +162,7 @@ async function remove(c) {
     await load()
     app.loadStats()
   } catch (e) {
-    ui.showToast(e?.message || '删除失败')
+    ui.showToast((e as { message?: string } | null)?.message || '删除失败')
   }
 }
 </script>

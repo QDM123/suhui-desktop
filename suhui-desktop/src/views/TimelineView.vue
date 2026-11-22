@@ -76,18 +76,18 @@
           <h1>{{ readerEntry.title || '（无标题）' }}</h1>
           <div class="body" v-html="hl(readerEntry.content)"></div>
           <!-- 朋友圈式图片网格 -->
-          <div v-if="tl.reader.media.length" class="r-imgs">
+          <div v-if="tl.reader?.media.length" class="r-imgs">
             <div
-              v-for="(m, i) in tl.reader.media"
+              v-for="(m, i) in tl.reader?.media || []"
               :key="m.id"
               @click="lbIndex = i; lbShow = true"
             ><img :src="`media://${m.file_name}`" alt=""></div>
           </div>
           <div class="meta" style="margin-top:24px;font-size:11.5px;">
             <span>分类：{{ catName }}</span>
-            <span v-if="tl.reader.media.length">🖼️ {{ tl.reader.media.length }} 张</span>
+            <span v-if="tl.reader?.media.length">🖼️ {{ tl.reader?.media.length }} 张</span>
             <span
-              v-for="t in tl.reader.tags"
+              v-for="t in tl.reader?.tags || []"
               :key="t.id"
               class="tag-link"
               title="按标签搜索"
@@ -111,7 +111,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTimelineStore } from '../stores/timeline'
@@ -120,6 +120,7 @@ import { useAppStore } from '../stores/app'
 import { usePaperStore } from '../stores/papers'
 import { WEEK_CN, weatherOf, moodOf } from '../constants'
 import Lightbox from '../components/Lightbox.vue'
+import type { TimelineEntry } from '../types/domain'
 
 const router = useRouter()
 const tl = useTimelineStore()
@@ -135,10 +136,10 @@ const sortedCats = computed(() =>
   [...tl.categories].sort((a, b) => (a.sort - b.sort) || (a.id - b.id))
 )
 
-const catBar = ref(null)
+const catBar = ref<HTMLElement | null>(null)
 
 /* 滚轮横移分类条（仅在可继续滚动的方向上拦截，不影响列表纵向滚动） */
-function onCatWheel(e) {
+function onCatWheel(e: WheelEvent) {
   const el = catBar.value
   if (!el || el.scrollWidth <= el.clientWidth) return
   const d = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX
@@ -151,7 +152,7 @@ function onCatWheel(e) {
 }
 
 /* 是否溢出：溢出才显示右缘渐隐提示 */
-function syncCatOverflow() {
+function syncCatOverflow(): void {
   const el = catBar.value
   if (el) el.classList.toggle('more', el.scrollWidth > el.clientWidth + 1)
 }
@@ -182,31 +183,32 @@ const dateLabel = computed(() => {
   const e = readerEntry.value
   if (!e) return ''
   const d = new Date(e.occurred_at)
-  const p = (n) => String(n).padStart(2, '0')
+  const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 ${WEEK_CN[e.weekday]} ${p(d.getHours())}:${p(d.getMinutes())}`
 })
 
-function ymLabel(ym) {
+function ymLabel(ym: string): string {
   const [y, m] = ym.split('-')
   return `${y}年 ${Number(m)}月`
 }
-function preview(e) {
+function preview(e: TimelineEntry): string {
   const first = (e.content || '').split('\n').map((s) => s.trim()).find(Boolean)
   return first ? first.slice(0, 20) : '（无标题）'
 }
 
 /* 搜索高亮（Phase 3）：先按原文切分，再分段转义，避免实体拆词 */
-function escHtml(s) {
-  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const ESC_MAP: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }
+function escHtml(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ESC_MAP[c])
 }
-function hl(text) {
+function hl(text: unknown): string {
   const t = String(text ?? '')
   const q = tl.searchQ.trim()
   if (!q) return escHtml(t)
   const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
   let out = ''
   let last = 0
-  let m
+  let m: RegExpExecArray | null
   while ((m = re.exec(t))) {
     out += escHtml(t.slice(last, m.index)) + '<span class="hit">' + escHtml(m[0]) + '</span>'
     last = m.index + m[0].length
@@ -215,7 +217,7 @@ function hl(text) {
   return out + escHtml(t.slice(last))
 }
 
-function searchTag(name) {
+function searchTag(name: string) {
   tl.setSearch(name)
 }
 
@@ -236,7 +238,7 @@ onMounted(async () => {
   app.loadStats()
 })
 
-function step(d) {
+function step(d: number) {
   const end = tl.step(d)
   if (end) ui.showToast(end)
 }
@@ -251,12 +253,12 @@ async function del() {
     danger: true
   })
   if (!okAsk) return
-  const id = tl.selectedId
+  const id = tl.selectedId as string
   const ok = await tl.remove(id)
   if (ok) ui.showToast('已移入回收站')
 }
-function lbMove(d) {
-  const n = tl.reader.media.length
+function lbMove(d: number) {
+  const n = tl.reader!.media.length
   lbIndex.value = (lbIndex.value + d + n) % n
 }
 
@@ -266,12 +268,12 @@ async function makeLongImage() {
   longBusy.value = true
   ui.showToast('正在生成长图…')
   try {
-    const r = await window.api.export.longImage(tl.selectedId)
-    if (r.canceled) ui.showToast('已取消')
+    const r = await window.api.export.longImage(tl.selectedId as string)
+    if ('canceled' in r) ui.showToast('已取消')
     else if (r.ok) ui.showToast('长图已生成')
     else ui.showToast(r.error || '生成失败')
   } catch (e) {
-    ui.showToast('生成失败：' + (e?.message || e))
+    ui.showToast('生成失败：' + String((e as { message?: string } | null)?.message || e))
   } finally {
     longBusy.value = false
   }

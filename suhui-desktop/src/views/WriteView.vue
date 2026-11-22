@@ -52,11 +52,11 @@
     <!-- 信笺纸：标题 + 正文 -->
     <div class="ed-paper" :class="paperInfo.cls" :style="paperInfo.style" @paste="onPaste">
       <input class="ed-title" placeholder="标题（可留空）" :value="ed.fields.title"
-             @input="ed.setField('title', $event.target.value)">
+             @input="ed.setField('title', ($event.target as HTMLInputElement).value)">
 
       <textarea ref="contentRef" class="ed-content" placeholder="此刻，想说点什么…（支持 Ctrl+V 粘贴图片）"
                 :value="ed.fields.content"
-                @input="ed.setField('content', $event.target.value)"></textarea>
+                @input="ed.setField('content', ($event.target as HTMLTextAreaElement).value)"></textarea>
 
       <!-- 信笺选择：默认 5 款 + 全部 -->
       <div class="paper-pick">
@@ -75,7 +75,7 @@
 
     <!-- 图片墙：信纸下方独立一行，横向排开 -->
     <div class="ed-photos-bar">
-      <div v-for="(m, i) in ed.media" :key="m.id" class="ed-photo" :title="m.orig_name"
+      <div v-for="(m, i) in ed.media" :key="m.id" class="ed-photo" :title="m.orig_name ?? undefined"
            @click="lbIndex = i; lbShow = true">
         <img :src="`media://${m.file_name}`" alt="">
         <button class="ed-photo-del" title="移除照片" @click.stop="removePhoto(m)">✕</button>
@@ -166,7 +166,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useEditorStore } from '../stores/editor'
@@ -179,6 +179,8 @@ import { usePaperStore } from '../stores/papers'
 import { matchShortcut } from '../shortcuts'
 import Modal from '../components/Modal.vue'
 import Lightbox from '../components/Lightbox.vue'
+import type { CategoryWithCount, MediaRow, TagWithUsed } from '../types/domain'
+import type { PaperResolve } from '../stores/papers'
 
 const route = useRoute()
 const router = useRouter()
@@ -190,10 +192,10 @@ const ps = usePaperStore()
 
 const show = reactive({ weather: false, mood: false, category: false, tags: false, address: false })
 const showPapers = ref(false)
-const categories = ref([])
-const allTags = ref([])
-const recentAddresses = ref([])
-const draftTags = ref([])
+const categories = ref<CategoryWithCount[]>([])
+const allTags = ref<TagWithUsed[]>([])
+const recentAddresses = ref<string[]>([])
+const draftTags = ref<string[]>([])
 const draftAddress = ref('')
 const newTag = ref('')
 const dayInput = ref(fmtDay())
@@ -203,12 +205,12 @@ const autoBusy = ref(false)
 /* 自动填充只覆盖“仍是打开时默认值”的字段，用户手填不覆盖 */
 const defaultsAtOpen = ref({ address: '', weather: 1 })
 
-const contentRef = ref(null)
+const contentRef = ref<HTMLTextAreaElement | null>(null)
 
 /* ---------- 快捷键与排版工具（列表 / 分隔线 / 时间戳） ---------- */
 
 /** 更新正文并恢复光标到指定位置 */
-function applyContent(newVal, selStart, selEnd) {
+function applyContent(newVal: string, selStart: number, selEnd: number) {
   ed.setField('content', newVal)
   nextTick(() => {
     if (!contentRef.value) return
@@ -218,7 +220,7 @@ function applyContent(newVal, selStart, selEnd) {
 }
 
 /** 行级列表切换：作用于光标所在行或选中的多行；重复按可取消/互转（标记为 Markdown 兼容语法） */
-function toggleList(kind) {
+function toggleList(kind: 'ol' | 'ul') {
   const ta = contentRef.value
   const val = ed.fields.content || ''
   const start = ta ? ta.selectionStart : val.length
@@ -231,7 +233,7 @@ function toggleList(kind) {
   const ulRe = /^-\s/
   const allOl = lines.every((l) => olRe.test(l))
   const allUl = lines.every((l) => ulRe.test(l))
-  const strip = (l) => l.replace(olRe, '').replace(ulRe, '')
+  const strip = (l: string): string => l.replace(olRe, '').replace(ulRe, '')
   const next = kind === 'ol'
     ? (allOl ? lines.map((l) => l.replace(olRe, ''))
              : lines.map((l, i) => `${i + 1}. ${strip(l)}`))
@@ -262,14 +264,15 @@ function insertTimestamp() {
   applyContent(val.slice(0, at) + text + val.slice(at), at + text.length, at + text.length)
 }
 
-function onKeydown(e) {
+function onKeydown(e: KeyboardEvent) {
   /* 从快捷键注册表匹配写作页/正文作用域（键位与说明页同源） */
   const sc = matchShortcut(e, ['write', 'content'])
   if (!sc) return
   /* Esc：关闭当前打开的弹窗（信纸 / 天气 / 心情 / 分类 / 标签 / 位置） */
   if (sc.id === 'close-modal') {
-    for (const k of Object.keys(show)) {
-      if (show[k]) { show[k] = false; e.preventDefault(); return }
+    const flags = show as Record<string, boolean>
+    for (const k of Object.keys(flags)) {
+      if (flags[k]) { flags[k] = false; e.preventDefault(); return }
     }
     if (showPapers.value) { showPapers.value = false; e.preventDefault() }
     return
@@ -302,10 +305,11 @@ const paperInfo = computed(() => {
   return ps.resolve(bg, true)
 })
 /* 默认展示 5 款：当前选中优先 + 内置补足 */
-const pickList = computed(() => {
+interface PickItem { value: string; name: string; cls: string; style: PaperResolve['style'] }
+const pickList = computed<PickItem[]>(() => {
   const bg = ed.fields.background
-  const list = []
-  const push = (value, name) => {
+  const list: PickItem[] = []
+  const push = (value: string, name?: string) => {
     if (list.length >= 5 || list.some((x) => x.value === value)) return
     const r = ps.resolve(value)
     list.push({ value, name: name || value, cls: r.cls, style: r.style })
@@ -344,12 +348,12 @@ onMounted(async () => {
   if (ed.isNew) applyAuto(true) // 新日记静默自动填充，失败不打扰
 })
 
-async function applyAuto(silent) {
+async function applyAuto(silent: boolean) {
   if (autoBusy.value) return
   autoBusy.value = true
   try {
     const info = await getAutoInfo()
-    if (info.failed) {
+    if ('failed' in info) {
       if (!silent) ui.showToast(info.reason || '定位失败，请手动填写')
       return
     }
@@ -368,7 +372,7 @@ async function applyAuto(silent) {
   }
 }
 
-function lbMove(d) {
+function lbMove(d: number) {
   const n = ed.media.length
   if (!n) return
   lbIndex.value = (lbIndex.value + d + n) % n
@@ -390,7 +394,7 @@ function openTags() {
   show.tags = true
 }
 
-function toggleDraftTag(name) {
+function toggleDraftTag(name: string) {
   const i = draftTags.value.indexOf(name)
   if (i >= 0) draftTags.value.splice(i, 1)
   else draftTags.value.push(name)
@@ -412,7 +416,7 @@ async function applyTags() {
     await ed.applyTags(draftTags.value)
     ui.showToast('标签已保存')
   } catch (e) {
-    ui.showToast('标签保存失败：' + (e?.message || e))
+    ui.showToast('标签保存失败：' + String((e as { message?: string } | null)?.message || e))
   }
 }
 
@@ -432,18 +436,21 @@ async function addFiles() {
     const r = await ed.pickAndAddFiles()
     if (r.skipped?.length) ui.showToast(`已跳过 ${r.skipped.length} 个非图片文件`)
   } catch (e) {
-    ui.showToast('添加图片失败：' + (e?.message || e))
+    ui.showToast('添加图片失败：' + String((e as { message?: string } | null)?.message || e))
   }
 }
 
-async function removePhoto(m) {
+async function removePhoto(m: MediaRow) {
   const r = await ed.removeMedia(m.id)
   if (!r.ok) ui.showToast('删除失败（文件可能被占用）')
 }
 
-async function onPaste(e) {
+async function onPaste(e: ClipboardEvent) {
   const items = Array.from(e.clipboardData?.items || [])
-  const files = items.filter((it) => it.kind === 'file' && it.type.startsWith('image/')).map((it) => it.getAsFile()).filter(Boolean)
+  const files = items
+    .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
+    .map((it) => it.getAsFile())
+    .filter((f): f is File => !!f)
   if (!files.length) return
   e.preventDefault()
   for (const f of files) {
@@ -452,13 +459,13 @@ async function onPaste(e) {
 }
 
 async function leave() {
-  router.push('/timeline') // 守卫在 router 层统一 flush（src/main.js）
+  router.push('/timeline') // 守卫在 router 层统一 flush（src/main.ts）
 }
 
 async function done() {
   const ok = await ed.flush()
   if (!ok) {
-    const retry = await ui.askConfirm({ title: '保存失败', body: ed.saveError + '\n\n重试保存并离开？', confirmText: '重试并离开' })
+    const retry = await ui.askConfirm({ title: '保存失败', body: String(ed.saveError) + '\n\n重试保存并离开？', confirmText: '重试并离开' })
     if (!retry) return
     const ok2 = await ed.flush()
     if (!ok2) { ui.showToast('仍未保存成功，请检查后重试'); return }

@@ -84,13 +84,30 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCalendarStore } from '../stores/calendar'
 import { useTimelineStore } from '../stores/timeline'
 import { useUiStore } from '../stores/ui'
 import { fmtDay } from '../constants'
+
+type Mode = 'month' | 'day' | 'week'
+
+interface HmCell {
+  key: string
+  text: string
+  cnt: number
+  isFuture: boolean
+  isToday: boolean
+  isTunnel: boolean
+  void: boolean
+  level: string
+  title: string
+}
+interface HmRow { label: string; cells: HmCell[] }
+interface HmTable { header: string[]; rows: HmRow[]; tpl: string }
+interface Segment { start: string; end: string; days: number; label: string }
 
 const router = useRouter()
 const cal = useCalendarStore()
@@ -99,16 +116,16 @@ const ui = useUiStore()
 
 const nowYear = new Date().getFullYear()
 const todayKey = fmtDay()
-const mode = ref('month') // month=按月份 day=按日期 week=按星期
+const mode = ref<Mode>('month') // month=按月份 day=按日期 week=按星期
 
-const countByDay = ref(new Map())
-const firstIdByDay = ref(new Map())
+const countByDay = ref(new Map<string, number>())
+const firstIdByDay = ref(new Map<string, string>())
 const stats = ref({ recordedDays: 0, totalEntries: 0, longestStreak: 0, segments: 0 })
-const segments = ref([])
+const segments = ref<Segment[]>([])
 
-const pad2 = (n) => String(n).padStart(2, '0')
-const keyOf = (y, m, d) => `${y}-${pad2(m + 1)}-${pad2(d)}`
-const dayLabel = (key) => {
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+const keyOf = (y: number, m: number, d: number): string => `${y}-${pad2(m + 1)}-${pad2(d)}`
+const dayLabel = (key: string): string => {
   const [, m, d] = key.split('-').map(Number)
   return `${m}月${d}日`
 }
@@ -132,7 +149,7 @@ const fontPx = computed(() => ({
 }[mode.value]))
 
 /* 统一构造格子：text = 印在格子上的数字（按模式为“几号”或“月份”） */
-function makeCell(key, text) {
+function makeCell(key: string, text: number): HmCell {
   const cnt = countByDay.value.get(key) || 0
   const isFuture = key > todayKey
   const isToday = key === todayKey
@@ -155,21 +172,22 @@ function makeCell(key, text) {
           : `${dayLabel(key)} · 空白`
   }
 }
-const VOID = { void: true, key: '', text: '', level: '', title: '' }
+/* 占位格（非本年 / 超出范围）：模板以 void 隐藏，不响应点击 */
+const VOID: HmCell = { void: true, key: '', text: '', cnt: 0, isFuture: false, isToday: false, isTunnel: false, level: '', title: '' }
 
 /* 三种尺度的表格：header + rows + 弹性列模板（数字直接印在格子上）
    month/day 用 1fr 弹性列填满容器（同日历机制，随窗口等比缩放）；
    week 列多（~53），用固定列横向滚动 */
-const table = computed(() => {
+const table = computed<HmTable>(() => {
   const y = cal.year
   const maxM = y === nowYear ? new Date().getMonth() : 11
 
   if (mode.value === 'month') {
     /* 按月份：格子上印“几号” */
-    const rows = []
+    const rows: HmRow[] = []
     for (let m = 0; m <= maxM; m++) {
       const dim = new Date(y, m + 1, 0).getDate()
-      const cells = []
+      const cells: HmCell[] = []
       for (let d = 1; d <= dim; d++) cells.push(makeCell(keyOf(y, m, d), d))
       rows.push({ label: `${m + 1}月`, cells })
     }
@@ -178,9 +196,9 @@ const table = computed(() => {
 
   if (mode.value === 'day') {
     /* 按日期：格子上印“月份” */
-    const rows = []
+    const rows: HmRow[] = []
     for (let d = 1; d <= 31; d++) {
-      const cells = []
+      const cells: HmCell[] = []
       let any = false
       for (let m = 0; m <= maxM; m++) {
         const dim = new Date(y, m + 1, 0).getDate()
@@ -199,9 +217,9 @@ const table = computed(() => {
   const gridStart = new Date(jan1)
   gridStart.setDate(1 - jan1.getDay())
   const lastDay = y === nowYear ? new Date() : new Date(y, 11, 31)
-  const totalDays = Math.round((lastDay - gridStart) / 86400000) + 1
+  const totalDays = Math.round((lastDay.getTime() - gridStart.getTime()) / 86400000) + 1
   const weeks = Math.ceil(totalDays / 7)
-  const header = []
+  const header: string[] = []
   let lastM = -1
   for (let w = 0; w < weeks; w++) {
     const colStart = new Date(gridStart)
@@ -210,9 +228,9 @@ const table = computed(() => {
     header.push(m !== lastM && colStart.getFullYear() === y ? `${m + 1}月` : '')
     if (colStart.getFullYear() === y) lastM = m
   }
-  const rows = []
+  const rows: HmRow[] = []
   for (let dow = 0; dow < 7; dow++) {
-    const cells = []
+    const cells: HmCell[] = []
     for (let w = 0; w < weeks; w++) {
       const dt = new Date(gridStart)
       dt.setDate(gridStart.getDate() + w * 7 + dow)
@@ -225,7 +243,7 @@ const table = computed(() => {
 })
 
 /* 空白周判定：所在周（周日~周六）整周已过去且全无记录 */
-function weekBlank(key) {
+function weekBlank(key: string): boolean {
   const dt = new Date(key + 'T00:00:00')
   const start = new Date(dt)
   start.setDate(dt.getDate() - dt.getDay())
@@ -248,8 +266,8 @@ async function load() {
     keyOf(from.getFullYear(), from.getMonth(), from.getDate()),
     keyOf(to.getFullYear(), to.getMonth(), to.getDate())
   )
-  const counts = new Map()
-  const firsts = new Map()
+  const counts = new Map<string, number>()
+  const firsts = new Map<string, string>()
   for (const r of rows) {
     counts.set(r.day, (counts.get(r.day) || 0) + 1)
     if (!firsts.has(r.day)) firsts.set(r.day, r.id)
@@ -260,7 +278,7 @@ async function load() {
   computeSegments()
 }
 
-function computeStats() {
+function computeStats(): void {
   const y = cal.year
   const prefix = `${y}-`
   let recordedDays = 0
@@ -273,7 +291,7 @@ function computeStats() {
   }
   let longest = 0
   let cur = 0
-  const end = new Date(Math.min(new Date(y, 11, 31), new Date()))
+  const end = new Date(Math.min(new Date(y, 11, 31).getTime(), new Date().getTime()))
   for (const d = new Date(y, 0, 1); d <= end; d.setDate(d.getDate() + 1)) {
     const k = keyOf(d.getFullYear(), d.getMonth(), d.getDate())
     if ((countByDay.value.get(k) || 0) > 0) {
@@ -286,49 +304,49 @@ function computeStats() {
   stats.value = { recordedDays, totalEntries, longestStreak: longest, segments: segments.value.length }
 }
 
-function computeSegments() {
+function computeSegments(): void {
   const y = cal.year
-  const tunnelDays = []
-  const end = new Date(Math.min(new Date(y, 11, 31), new Date()))
+  const tunnelDays: string[] = []
+  const end = new Date(Math.min(new Date(y, 11, 31).getTime(), new Date().getTime()))
   for (const d = new Date(y, 0, 1); d <= end; d.setDate(d.getDate() + 1)) {
     const k = keyOf(d.getFullYear(), d.getMonth(), d.getDate())
     if ((countByDay.value.get(k) || 0) === 0 && weekBlank(k)) tunnelDays.push(k)
   }
-  const out = []
-  let start = null
-  let prev = null
+  const out: Segment[] = []
+  let start: string | null = null
+  let prev: string | null = null
   for (const k of tunnelDays) {
     if (start === null) {
       start = k
-    } else if ((new Date(k + 'T00:00:00') - new Date(prev + 'T00:00:00')) / 86400000 > 1) {
-      out.push(mkSeg(start, prev))
+    } else if ((new Date(`${k}T00:00:00`).getTime() - new Date(`${prev as string}T00:00:00`).getTime()) / 86400000 > 1) {
+      out.push(mkSeg(start, prev as string))
       start = k
     }
     prev = k
   }
-  if (start !== null) out.push(mkSeg(start, prev))
+  if (start !== null) out.push(mkSeg(start, prev as string))
   segments.value = out
   stats.value.segments = out.length
 }
 
-function mkSeg(start, end) {
-  const days = Math.round((new Date(end + 'T00:00:00') - new Date(start + 'T00:00:00')) / 86400000) + 1
+function mkSeg(start: string, end: string): Segment {
+  const days = Math.round((new Date(end + 'T00:00:00').getTime() - new Date(start + 'T00:00:00').getTime()) / 86400000) + 1
   const label = start === end ? dayLabelFull(start) : `${dayLabelFull(start)} ~ ${dayLabelFull(end)}`
   return { start, end, days, label }
 }
-const dayLabelFull = (key) => {
+const dayLabelFull = (key: string): string => {
   const [y, m, d] = key.split('-').map(Number)
   return `${y}年${m}月${d}日`
 }
 
 /* 格子点击：有日记跳时间轴；空白/隧道/今天走对应弹窗（报告 §4.2 逐字文案） */
-async function clickCell(c) {
+async function clickCell(c: HmCell) {
   if (!c || c.void || c.isFuture || !c.key) return
   if (c.cnt > 0) {
     /* 跳时间轴并选中该日第一篇；清空搜索与分类过滤，确保目标可见 */
     await tl.setSearch('')
     if (tl.filterCat) await tl.setFilter(tl.filterCat)
-    tl.pendingSelectId = firstIdByDay.value.get(c.key)
+    tl.pendingSelectId = firstIdByDay.value.get(c.key) ?? null
     router.push('/timeline')
     return
   }
@@ -349,7 +367,7 @@ async function clickCell(c) {
   }
 }
 
-function goWrite(date) {
+function goWrite(date: string) {
   router.push({ path: '/write', query: { date } })
 }
 

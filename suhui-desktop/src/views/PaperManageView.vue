@@ -53,17 +53,18 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePaperStore } from '../stores/papers'
 import { useUiStore } from '../stores/ui'
 import { BUILTIN_PAPERS } from '../constants'
+import type { Paper } from '../types/domain'
 
 const router = useRouter()
 
 /* 从哪进入回哪：无来源时回设置 */
-function back() { router.push(router.options.history.state.back || '/settings') }
+function back() { router.push((router.options.history.state.back as string | null) || '/settings') }
 const ps = usePaperStore()
 const ui = useUiStore()
 
@@ -81,13 +82,13 @@ const genBase = ref('#fffdf8')
 const genPatternColor = ref('#00a99d')
 const genPattern = ref('lines')
 
-function hexToRgba(hex, alpha) {
+function hexToRgba(hex: string, alpha: number): string {
   const n = parseInt(hex.slice(1), 16)
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`
 }
 const previewStyle = computed(() => {
   const pc = hexToRgba(genPatternColor.value, 0.16)
-  const s = { backgroundColor: genBase.value, backgroundImage: 'none' }
+  const s: Record<string, string> = { backgroundColor: genBase.value, backgroundImage: 'none' }
   if (genPattern.value === 'lines') {
     s.backgroundImage = `repeating-linear-gradient(transparent, transparent 14px, ${pc} 14px 15px)`
   } else if (genPattern.value === 'dots') {
@@ -104,12 +105,12 @@ const previewStyle = computed(() => {
 async function addImage() {
   try {
     const r = await window.api.papers.addImage(imgName.value.trim() || null)
-    if (r.canceled) return
+    if ('canceled' in r) return
     imgName.value = ''
     ui.showToast('信纸已添加')
     await ps.load(true)
   } catch (e) {
-    ui.showToast(e?.message || '添加失败')
+    ui.showToast((e as { message?: string } | null)?.message || '添加失败')
   }
 }
 
@@ -125,11 +126,11 @@ async function saveGen() {
     ui.showToast('信纸已保存')
     await ps.load(true)
   } catch (e) {
-    ui.showToast(e?.message || '保存失败')
+    ui.showToast((e as { message?: string } | null)?.message || '保存失败')
   }
 }
 
-async function remove(c) {
+async function remove(c: Paper) {
   const okAsk = await ui.askConfirm({
     title: '删除信纸',
     body: `确定删除「${c.name}」？\n正在使用它的日记将回退为默认信纸。`,
