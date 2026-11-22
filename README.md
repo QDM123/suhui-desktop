@@ -79,6 +79,19 @@ suhui-desktop/
 └── scripts/           # 发布与测试脚本
 ```
 
+## 打赏支持
+
+如果溯洄对你有帮助，欢迎请作者（七度猫）喝杯咖啡 ☕
+
+<details>
+<summary>📱 微信赞赏码（点击展开）</summary>
+
+<p align="center">
+  <img src="docs/donate/wechat.png" alt="微信赞赏码" width="260">
+</p>
+
+</details>
+
 ## 许可证
 
 [MIT](./LICENSE)
