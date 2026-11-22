@@ -578,7 +578,7 @@ export function createDao(db: Db, mediaDir: string, opts: DaoOptions = {}) {
     'SELECT * FROM media WHERE entry_id = ? ORDER BY sort, created_at'
   )
 
-  function addMediaFile(entryId: string, srcPath: string, displayName?: string | null): { skipped: string } | { added: MediaRow | undefined } {
+  function addMediaFile(entryId: string, srcPath: string, displayName?: string | null): { skipped: string } | { added: MediaRow } {
     const ext = path.extname(srcPath).toLowerCase()
     if (!IMG_EXT.has(ext)) return { skipped: displayName || srcPath }
     const fileName = randomUUID() + ext
@@ -593,10 +593,10 @@ export function createDao(db: Db, mediaDir: string, opts: DaoOptions = {}) {
       stat.size, dims.width, dims.height,
       nextSort.get(entryId)!.s, localDateTime()
     )
-    return { added: stmtGetMediaAll.all(entryId).find((m) => m.id === id) }
+    return { added: stmtGetMediaAll.all(entryId).find((m) => m.id === id)! } // 刚插入的行必在
   }
 
-  function addMediaBuffer(entryId: string, suggestedName: string, buf: Uint8Array | ArrayBuffer): MediaRow | undefined {
+  function addMediaBuffer(entryId: string, suggestedName: string, buf: Uint8Array | ArrayBuffer): MediaRow {
     let ext = path.extname(suggestedName || '').toLowerCase()
     if (!IMG_EXT.has(ext)) ext = '.png'
     const fileName = randomUUID() + ext
@@ -612,7 +612,7 @@ export function createDao(db: Db, mediaDir: string, opts: DaoOptions = {}) {
       stat.size, dims.width, dims.height,
       nextSort.get(entryId)!.s, localDateTime()
     )
-    return stmtGetMediaAll.all(entryId).find((m) => m.id === id)
+    return stmtGetMediaAll.all(entryId).find((m) => m.id === id)! // 刚插入的行必在
   }
 
   /** 删除媒体：先删文件（失败则中止），成功后事务删记录 */

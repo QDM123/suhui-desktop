@@ -76,10 +76,10 @@ export interface SuhuiApi {
     today(): Promise<TodayItem[]>
     /** 全量替换该篇标签（按名字，自动建新标签）；throws：日记不存在 */
     setTags(id: string, names: string[]): Promise<{ tags: TagRef[]; rev: number; updated_at: string }>
-    list(categoryId?: number): Promise<TimelineEntry[]>
+    list(categoryId?: number | null): Promise<TimelineEntry[]>
     /** 软删 → 回收站 */
     softDelete(id: string): Promise<{ ok: boolean }>
-    search(q: string, categoryId?: number): Promise<TimelineEntry[]>
+    search(q: string, categoryId?: number | null): Promise<TimelineEntry[]>
     range(fromDay: string, toDay: string): Promise<RangeEntry[]>
     /** 最近一篇的天气；无日记时 null */
     latestWeather(): Promise<number | null>
@@ -108,7 +108,7 @@ export interface SuhuiApi {
 
   media: {
     pickAndAdd(entryId: string): Promise<{ added: MediaRow[]; skipped: string[] }>
-    addBuffer(entryId: string, name: string, buf: Uint8Array | ArrayBuffer): Promise<MediaRow | null>
+    addBuffer(entryId: string, name: string, buf: Uint8Array | ArrayBuffer): Promise<MediaRow>
     remove(id: string): Promise<{ ok: true } | { ok: false; error: string }>
     listAll(): Promise<AlbumMediaItem[]>
   }

@@ -5,10 +5,26 @@
    - 会话级缓存；不覆盖用户已手填的值；日记内容不出本机
    ============================================================ */
 
-let cache = null
+export interface AutoInfo {
+  address: string
+  weatherId: number | null
+  precision: 'precise' | 'city'
+}
+
+export interface AutoInfoFailed {
+  failed: true
+  reason: string
+}
+
+interface OpenMeteoCurrent {
+  weathercode?: number
+  is_day?: number
+}
+
+let cache: AutoInfo | null = null
 
 /** WMO weathercode → 吾记 10 项枚举 id（晴1 多云2 阴3 雨4 雷5 雾7 雪8 夜晚10） */
-function mapWeather(cw) {
+function mapWeather(cw: OpenMeteoCurrent | null | undefined): number | null {
   if (!cw || typeof cw.weathercode !== 'number') return null
   const code = cw.weathercode
   const isDay = cw.is_day === 1
@@ -24,7 +40,7 @@ function mapWeather(cw) {
   return id
 }
 
-function getPosition() {
+function getPosition(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) return reject(Object.assign(new Error('unavailable'), { code: 2 }))
     navigator.geolocation.getCurrentPosition(resolve, (err) => reject(err), {
@@ -34,35 +50,37 @@ function getPosition() {
   })
 }
 
-async function reverseGeocode(lat, lon) {
+async function reverseGeocode(lat: number, lon: number): Promise<string> {
   const url =
     `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}` +
     `&accept-language=zh-CN&zoom=14`
-  const j = await fetch(url).then((r) => r.json())
+  const j: { address?: Record<string, string | undefined>; name?: string } = await fetch(url).then((r) => r.json())
   const a = j.address || {}
   return a.city || a.town || a.district || a.county || a.state || j.name || ''
 }
 
-async function fetchWeather(lat, lon) {
+async function fetchWeather(lat: number, lon: number): Promise<number | null> {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`
-  const j = await fetch(url).then((r) => r.json())
+  const j: { current_weather?: OpenMeteoCurrent } = await fetch(url).then((r) => r.json())
   return mapWeather(j.current_weather)
 }
 
-async function byIp() {
-  const j = await fetch('https://ipapi.co/json/').then((r) => r.json())
+async function byIp(): Promise<{ lat: number; lon: number; address: string } | null> {
+  const j: { latitude?: number; longitude?: number; city?: string; region?: string } =
+    await fetch('https://ipapi.co/json/').then((r) => r.json())
   if (!j || typeof j.latitude !== 'number') return null
-  return { lat: j.latitude, lon: j.longitude, address: j.city || j.region || '' }
+  return { lat: j.latitude, lon: j.longitude as number, address: j.city || j.region || '' }
 }
 
 /**
- * 返回 { address, weatherId, precision: 'precise'|'city', reason? }
- * precision=city 表示精确定位失败后按 IP 城市回退
+ * 返回 { address, weatherId, precision: 'precise'|'city' }
+ * precision=city 表示精确定位失败后按 IP 城市回退；定位完全不可用时返回 { failed: true, reason }
  */
-export async function getAutoInfo() {
+export async function getAutoInfo(): Promise<AutoInfo | AutoInfoFailed> {
   if (cache) return cache
 
-  let lat, lon, address, precision = 'precise'
+  let lat: number, lon: number, address: string
+  let precision: 'precise' | 'city' = 'precise'
   try {
     const pos = await getPosition()
     lat = pos.coords.latitude
@@ -70,10 +88,10 @@ export async function getAutoInfo() {
     address = await reverseGeocode(lat, lon).catch(() => '')
   } catch (e) {
     // 精确定位失败：回退 IP 城市级
-    let ip = null
+    let ip: { lat: number; lon: number; address: string } | null = null
     try { ip = await byIp() } catch { ip = null }
     if (!ip) {
-      const reason = e?.code === 1
+      const reason = (e as { code?: number })?.code === 1
         ? '定位被拒绝（Windows 设置 → 隐私和安全性 → 位置，需开启并允许桌面应用）'
         : '定位不可用（请检查 Windows 位置服务）'
       return { failed: true, reason }

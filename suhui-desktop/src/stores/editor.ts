@@ -1,11 +1,28 @@
 import { defineStore } from 'pinia'
 import { fmtDay, fmtTime } from '../constants'
+import type { DraftInit, EntryDetail, EntryPatch, MediaRow } from '../types/domain'
 
 /* 文本类字段：300ms 防抖合并（计划 §2.3 / 开放问题 #8 默认）
    属性类字段：变更即时写库 */
-const TEXT_KEYS = ['title', 'content']
+const TEXT_KEYS: string[] = ['title', 'content']
 
-function defaultFields() {
+export interface EditorFields {
+  title: string
+  content: string
+  occurredDay: string
+  occurredTime: string
+  weather: number
+  mood: number | null
+  category_id: number
+  address: string
+  background: string
+}
+
+export type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+
+type Timer = ReturnType<typeof setTimeout>
+
+function defaultFields(): EditorFields {
   return {
     title: '',
     content: '',
@@ -23,17 +40,17 @@ export const useEditorStore = defineStore('editor', {
   state: () => ({
     active: false,
     isNew: true,
-    entryId: null,
+    entryId: null as string | null,
     fields: defaultFields(),
     rev: 0,
-    tags: [],
-    media: [],
+    tags: [] as string[],
+    media: [] as MediaRow[],
     /* idle | saving | saved | error */
-    saveState: 'idle',
-    savedAt: null,
-    saveError: null,
-    _pending: {},
-    _timer: null,
+    saveState: 'idle' as SaveState,
+    savedAt: null as Date | null,
+    saveError: null as string | null,
+    _pending: {} as Record<string, true>,
+    _timer: null as Timer | null,
     _flushing: false,
     _rerun: false,
     _current: Promise.resolve(true)
@@ -45,8 +62,8 @@ export const useEditorStore = defineStore('editor', {
   },
 
   actions: {
-    open(existing = null, presetDate = null) {
-      clearTimeout(this._timer)
+    open(existing: EntryDetail | null = null, presetDate: string | null = null) {
+      clearTimeout(this._timer ?? undefined)
       this._pending = {}
       this.saveState = 'idle'
       this.savedAt = null
@@ -83,20 +100,20 @@ export const useEditorStore = defineStore('editor', {
     },
 
     closeSilent() {
-      clearTimeout(this._timer)
+      clearTimeout(this._timer ?? undefined)
       this.active = false
       this._pending = {}
     },
 
-    setField(key, value) {
+    setField<K extends keyof EditorFields>(key: K, value: EditorFields[K]) {
       this.fields[key] = value
       this.queueSave([key])
     },
 
-    queueSave(keys) {
+    queueSave(keys: string[]) {
       if (!this.active) return
       for (const k of keys) this._pending[k] = true
-      clearTimeout(this._timer)
+      clearTimeout(this._timer ?? undefined)
       const allText = Object.keys(this._pending).every((k) => TEXT_KEYS.includes(k))
       if (allText) {
         this._timer = setTimeout(() => { this.flush() }, 300)
@@ -105,7 +122,7 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
-    _draftInit() {
+    _draftInit(): DraftInit {
       const f = this.fields
       return {
         title: f.title,
@@ -120,9 +137,9 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
-    _buildPatch() {
+    _buildPatch(): EntryPatch {
       const f = this.fields
-      const patch = {}
+      const patch: Record<string, unknown> = {}
       for (const k of Object.keys(this._pending)) {
         if (k === 'occurredDay' || k === 'occurredTime') {
           if (patch.occurred_at === undefined) {
@@ -130,14 +147,14 @@ export const useEditorStore = defineStore('editor', {
             patch.occurred_at = `${f.occurredDay}T${time}:00`
           }
         } else {
-          patch[k] = f[k]
+          patch[k] = f[k as keyof EditorFields]
         }
       }
-      return patch
+      return patch as EntryPatch
     },
 
     /** flush 全部待写变更；返回 true=全部落盘成功 */
-    async flush() {
+    async flush(): Promise<boolean> {
       if (this._flushing) {
         this._rerun = true
         return this._current
@@ -153,7 +170,7 @@ export const useEditorStore = defineStore('editor', {
       return ok
     },
 
-    async _doFlush() {
+    async _doFlush(): Promise<boolean> {
       if (!this.active) return true
       try {
         if (!this.entryId) {
@@ -164,7 +181,8 @@ export const useEditorStore = defineStore('editor', {
         }
         if (this.pendingCount) {
           this.saveState = 'saving'
-          const r = await window.api.diary.patch(this.entryId, this._buildPatch())
+          const id = this.entryId as string
+          const r = await window.api.diary.patch(id, this._buildPatch())
           this.rev = r.rev
           this._pending = {}
         }
@@ -174,13 +192,13 @@ export const useEditorStore = defineStore('editor', {
         return true
       } catch (e) {
         this.saveState = 'error'
-        this.saveError = String(e?.message || e)
+        this.saveError = String((e as { message?: string } | null)?.message || e)
         return false
       }
     },
 
     /** 属性/文本之外的操作前置：确保条目已建 */
-    async ensureEntry() {
+    async ensureEntry(): Promise<string> {
       if (this.entryId) return this.entryId
       const { id } = await window.api.diary.ensureDraft(this._draftInit())
       this.entryId = id
@@ -188,7 +206,7 @@ export const useEditorStore = defineStore('editor', {
       return id
     },
 
-    async applyTags(names) {
+    async applyTags(names: ArrayLike<string>) {
       const id = await this.ensureEntry()
       /* ref/reactive 数组是 Proxy，IPC structured clone 无法序列化，
          必须先转成普通数组（元素为字符串） */
@@ -205,7 +223,7 @@ export const useEditorStore = defineStore('editor', {
       return r
     },
 
-    async addBufferFile(file) {
+    async addBufferFile(file: File) {
       const id = await this.ensureEntry()
       const buf = await file.arrayBuffer()
       const name = file.name || `paste-${Date.now()}.png`
@@ -213,7 +231,7 @@ export const useEditorStore = defineStore('editor', {
       this.media.push(row)
     },
 
-    async removeMedia(id) {
+    async removeMedia(id: string) {
       const r = await window.api.media.remove(id)
       if (r.ok) this.media = this.media.filter((m) => m.id !== id)
       return r

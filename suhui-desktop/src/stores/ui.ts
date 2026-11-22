@@ -3,8 +3,39 @@
    ============================================================ */
 import { defineStore } from 'pinia'
 
+type Timer = ReturnType<typeof setTimeout>
+
+interface ToastState {
+  visible: boolean
+  text: string
+  _timer: Timer | null
+}
+
+interface AskState {
+  visible: boolean
+  title: string
+  body: string
+  confirmText: string
+  cancelText: string
+  danger: boolean
+  _resolve: ((ok: boolean) => void) | null
+}
+
+export interface AskOptions {
+  title?: string
+  body?: string
+  confirmText?: string
+  cancelText?: string
+  danger?: boolean
+}
+
+interface UiState {
+  toast: ToastState
+  ask: AskState
+}
+
 export const useUiStore = defineStore('ui', {
-  state: () => ({
+  state: (): UiState => ({
     toast: { visible: false, text: '', _timer: null },
     ask: {
       visible: false,
@@ -17,14 +48,14 @@ export const useUiStore = defineStore('ui', {
     }
   }),
   actions: {
-    showToast(text, ms = 2000) {
+    showToast(text: string, ms = 2000) {
       this.toast.text = text
       this.toast.visible = true
-      clearTimeout(this.toast._timer)
+      clearTimeout(this.toast._timer ?? undefined)
       this.toast._timer = setTimeout(() => { this.toast.visible = false }, ms)
     },
     /** 询问弹窗，返回 Promise<boolean>（true=确认） */
-    askConfirm(opts) {
+    askConfirm(opts: AskOptions): Promise<boolean> {
       return new Promise((resolve) => {
         this.ask.title = opts.title || '提示'
         this.ask.body = opts.body || ''
@@ -35,7 +66,7 @@ export const useUiStore = defineStore('ui', {
         this.ask._resolve = resolve
       })
     },
-    resolveAsk(ok) {
+    resolveAsk(ok: boolean) {
       this.ask.visible = false
       this.ask._resolve?.(ok)
       this.ask._resolve = null

@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import type { Component } from 'vue'
 import WriteView from './views/WriteView.vue'
 import TimelineView from './views/TimelineView.vue'
 import CalendarView from './views/CalendarView.vue'
@@ -13,7 +14,14 @@ import PaperManageView from './views/PaperManageView.vue'
 import BackupManageView from './views/BackupManageView.vue'
 import ShortcutsView from './views/ShortcutsView.vue'
 
-export const NAV_ITEMS = [
+export interface NavItem {
+  path: string
+  label: string
+  icon: string
+  comp: Component
+}
+
+export const NAV_ITEMS: NavItem[] = [
   { path: '/write',     label: '写日记',   icon: '✏️', comp: WriteView },
   { path: '/timeline',  label: '时间轴',   icon: '📖', comp: TimelineView },
   { path: '/calendar',  label: '日历',     icon: '📅', comp: CalendarView },
@@ -23,7 +31,7 @@ export const NAV_ITEMS = [
   { path: '/export',    label: '导出',     icon: '📤', comp: ExportView }
 ]
 
-export const FOOTER_ITEMS = [
+export const FOOTER_ITEMS: NavItem[] = [
   { path: '/settings',  label: '设置',     icon: '⚙️', comp: SettingsView }
 ]
 

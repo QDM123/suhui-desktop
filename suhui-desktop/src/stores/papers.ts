@@ -5,15 +5,19 @@
    - entry.background 取值：'paper-N' | 'custom:<paperId>'
    ============================================================ */
 import { defineStore } from 'pinia'
+import type { Paper, PaperGenConfig } from '../types/domain'
 
-function genStyle(cfg, forText = false) {
-  const c = cfg || {}
+/** 生成信纸的样式对象（含 CSS 变量 --paper-* 等，故用字符串索引） */
+type GenStyle = Record<string, string>
+
+function genStyle(cfg: PaperGenConfig | null, forText = false): GenStyle {
+  const c: Partial<PaperGenConfig> = cfg || {}
   const patternColor = c.patternColor || 'rgba(0,150,140,.16)'
 
   /* 文字层模式（编辑器 / 阅读区）：容器只留底色，图案通过 CSS 变量
      交给正文元素绘制（32px 节奏随内容滚动，横线与文字永不错位） */
   if (forText) {
-    const style = { backgroundColor: c.base || '#fffdf8' }
+    const style: GenStyle = { backgroundColor: c.base || '#fffdf8' }
     if (c.pattern === 'lines') {
       style['--paper-line'] = patternColor
     } else if (c.pattern === 'dots') {
@@ -27,7 +31,7 @@ function genStyle(cfg, forText = false) {
   }
 
   /* 完整图案模式（缩略图 / 预览） */
-  const style = { backgroundColor: c.base || '#fffdf8', backgroundImage: 'none' }
+  const style: GenStyle = { backgroundColor: c.base || '#fffdf8', backgroundImage: 'none' }
   if (c.pattern === 'lines') {
     style.backgroundImage = `repeating-linear-gradient(transparent, transparent 31px, ${patternColor} 31px 32px)`
   } else if (c.pattern === 'dots') {
@@ -41,21 +45,32 @@ function genStyle(cfg, forText = false) {
   return style
 }
 
+export interface PaperOption {
+  value: string
+  name: string
+  custom: Paper | null
+}
+
+export interface PaperResolve {
+  cls: string
+  style: GenStyle | null
+}
+
 export const usePaperStore = defineStore('papers', {
   state: () => ({
-    customs: [],
+    customs: [] as Paper[],
     loaded: false
   }),
 
   getters: {
-    options(state) {
+    options(state): PaperOption[] {
       /* 全部可选：自定义在前 + 内置在后，value 为 entry.background 取值 */
-      const custom = state.customs.map((c) => ({
+      const custom: PaperOption[] = state.customs.map((c) => ({
         value: `custom:${c.id}`,
         name: c.name,
         custom: c
       }))
-      return [...custom, ...BUILTINS.map((p) => ({ value: p, name: p, custom: null }))]
+      return [...custom, ...BUILTINS.map((p): PaperOption => ({ value: p, name: p, custom: null }))]
     }
   },
 
@@ -67,7 +82,7 @@ export const usePaperStore = defineStore('papers', {
     },
     /** background 值 → { cls, style }；自定义缺失时回退 paper-1
         forText=true 为文字层模式（编辑器/阅读区，图案交正文画，防滚动错位） */
-    resolve(bg, forText = false) {
+    resolve(bg: string | null | undefined, forText = false): PaperResolve {
       if (!bg) return { cls: 'paper-1', style: null }
       if (!bg.startsWith('custom:')) return { cls: bg, style: null }
       const c = this.customs.find((x) => x.id === bg.slice(7))
@@ -85,10 +100,10 @@ export const usePaperStore = defineStore('papers', {
       return { cls: '', style: genStyle(c.config, forText) }
     },
     /** 供“全部信纸”弹窗 / 管理页的缩略图预览 */
-    preview(bg) {
+    preview(bg: string | null | undefined): PaperResolve {
       return this.resolve(bg)
     },
-    async remove(id) {
+    async remove(id: string) {
       await window.api.papers.remove(id)
       await this.load(true)
     }
@@ -96,7 +111,7 @@ export const usePaperStore = defineStore('papers', {
 })
 
 /* 内置列表（避免与 constants 循环依赖，这里字面量同步） */
-const BUILTINS = [
+const BUILTINS: string[] = [
   'paper-1', 'paper-2', 'paper-3', 'paper-4', 'paper-6',
   'paper-7', 'paper-8', 'paper-9', 'paper-10',
   'paper-11', 'paper-12', 'paper-13', 'paper-14', 'paper-15', 'paper-16'

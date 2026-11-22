@@ -6,9 +6,20 @@
    将来升级"自定义键位"时，把 COMBO_MAP 的构建改为读用户配置即可。
    ============================================================ */
 
-export const SCOPE_NAMES = { global: '全局', write: '写作页', content: '正文' }
+export type Scope = 'global' | 'write' | 'content'
 
-export const SHORTCUTS = [
+export const SCOPE_NAMES: Record<Scope, string> = { global: '全局', write: '写作页', content: '正文' }
+
+export interface Shortcut {
+  id: string
+  group: string
+  label: string
+  keys: string[]
+  alts?: string[]
+  scope: Scope
+}
+
+export const SHORTCUTS: Shortcut[] = [
   /* 全局操作 */
   { id: 'new-diary',     group: '全局操作', label: '新建日记',     keys: ['Ctrl', 'N'], scope: 'global' },
   { id: 'search',        group: '全局操作', label: '搜索日记',     keys: ['Ctrl', 'F'], scope: 'global' },
@@ -27,7 +38,7 @@ export const SHORTCUTS = [
 
 /* ---------- 事件匹配 ---------- */
 
-function normKey(e) {
+function normKey(e: KeyboardEvent): string {
   const k = e.key
   if (k === 'Escape') return 'Esc'
   if (k === ' ') return 'Space'
@@ -36,12 +47,12 @@ function normKey(e) {
 
 /** 键盘事件 → 候选组合串数组（如 ['Ctrl+Shift+O']、['Shift+?', '?']）
     符号键（如 ? 本身隐含 Shift）会额外补充不带 Shift 的等价写法 */
-export function eventCombos(e) {
+export function eventCombos(e: KeyboardEvent): string[] {
   const key = normKey(e)
-  const mods = []
+  const mods: string[] = []
   if (e.ctrlKey || e.metaKey) mods.push('Ctrl')
   if (e.altKey) mods.push('Alt')
-  const out = []
+  const out: string[] = []
   if (e.shiftKey) {
     out.push([...mods, 'Shift', key].join('+'))
     if (key.length === 1 && !/[A-Z0-9]/.test(key)) {
@@ -54,7 +65,7 @@ export function eventCombos(e) {
 }
 
 /* 组合串 → 注册项（首登记优先，天然防止重复键位） */
-const COMBO_MAP = new Map()
+const COMBO_MAP = new Map<string, Shortcut>()
 for (const s of SHORTCUTS) {
   for (const c of [s.keys.join('+'), ...(s.alts || [])]) {
     if (!COMBO_MAP.has(c)) COMBO_MAP.set(c, s)
@@ -63,7 +74,7 @@ for (const s of SHORTCUTS) {
 
 /** 按作用域匹配快捷键；未命中返回 null
     scopes: 'global' | 'write' | 'content' 的子集 */
-export function matchShortcut(e, scopes = ['global', 'write', 'content']) {
+export function matchShortcut(e: KeyboardEvent, scopes: Scope[] = ['global', 'write', 'content']): Shortcut | null {
   for (const c of eventCombos(e)) {
     const s = COMBO_MAP.get(c)
     if (s && scopes.includes(s.scope)) return s
@@ -71,9 +82,14 @@ export function matchShortcut(e, scopes = ['global', 'write', 'content']) {
   return null
 }
 
+export interface ShortcutGroup {
+  name: string
+  items: Shortcut[]
+}
+
 /** 分组视图：按注册表登记顺序返回 [{ name, items }]（展示层共用） */
-export function shortcutGroups() {
-  const groups = []
+export function shortcutGroups(): ShortcutGroup[] {
+  const groups: ShortcutGroup[] = []
   for (const s of SHORTCUTS) {
     let g = groups.find((x) => x.name === s.group)
     if (!g) {

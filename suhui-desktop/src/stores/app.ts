@@ -5,7 +5,7 @@ export const K = {
   theme: 'ui.theme',
   night: 'ui.night',
   sidebar: 'ui.sidebar_collapsed'
-}
+} as const
 
 export const useAppStore = defineStore('app', {
   state: () => ({
@@ -16,7 +16,7 @@ export const useAppStore = defineStore('app', {
     settingsLoaded: false
   }),
   getters: {
-    themeAttr(state) {
+    themeAttr(state): string | null {
       if (state.night) return 'night'
       return state.theme === 'default' ? null : state.theme
     }
@@ -33,12 +33,12 @@ export const useAppStore = defineStore('app', {
         window.api.settings.get(K.night, '0'),
         window.api.settings.get(K.sidebar, '0')
       ])
-      this.theme = ['default', 'forest', 'dusk', 'sunset', 'ink'].includes(theme) ? theme : 'default'
+      this.theme = theme !== null && ['default', 'forest', 'dusk', 'sunset', 'ink'].includes(theme) ? theme : 'default'
       this.night = night === '1'
       this.sidebarCollapsed = collapsed === '1'
       this.settingsLoaded = true
     },
-    async setTheme(key) {
+    async setTheme(key: string) {
       this.theme = key
       this.night = false // 主题与夜间互斥（与 Demo 行为一致）
       await Promise.all([
@@ -46,7 +46,7 @@ export const useAppStore = defineStore('app', {
         window.api.settings.set(K.night, '0')
       ])
     },
-    async setNight(v) {
+    async setNight(v: boolean) {
       this.night = v
       await window.api.settings.set(K.night, v ? '1' : '0')
     },
