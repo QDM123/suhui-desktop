@@ -8,6 +8,12 @@ shortcut-directions-preview.html
 # 私有数据（吾记导出的日记原文，仅本地导入测试用）
 吾记日记导出/
 
+# 个人收款凭证（已转存开源仓库 docs/donate/）
+Docs/赞赏码/
+
+# 演示环境（视频录制用，含生成的虚构数据，不进仓库）
+suhui-demo/
+
 # Node 兜底（子项目各自已有 .gitignore）
 node_modules/
 *.log
