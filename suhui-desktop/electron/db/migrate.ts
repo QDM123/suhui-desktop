@@ -1,10 +1,19 @@
 /* ============================================================
    版本化迁移框架：PRAGMA user_version，只增不改
    每个迁移一个版本号，事务内执行 DDL
-   .mjs：ESM，既可被主进程打包，也可 node 直跑冒烟测试
+   .ts：ESM，既可被主进程打包，也可 node 直跑冒烟测试（--experimental-strip-types）
    ============================================================ */
+import type Database from 'better-sqlite3'
 
-const MIGRATIONS = [
+type Db = InstanceType<typeof Database>
+
+interface Migration {
+  version: number
+  name: string
+  up: string[]
+}
+
+const MIGRATIONS: Migration[] = [
   {
     version: 1,
     name: 'settings-table',
@@ -128,8 +137,8 @@ const MIGRATIONS = [
   }
 ]
 
-export function runMigrations(db) {
-  const current = db.pragma('user_version', { simple: true })
+export function runMigrations(db: Db): number {
+  const current = db.pragma('user_version', { simple: true }) as number
   for (const m of MIGRATIONS) {
     if (m.version > current) {
       const apply = db.transaction(() => {
@@ -139,5 +148,5 @@ export function runMigrations(db) {
       apply()
     }
   }
-  return db.pragma('user_version', { simple: true })
+  return db.pragma('user_version', { simple: true }) as number
 }

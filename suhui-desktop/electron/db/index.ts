@@ -7,11 +7,14 @@ import Database from 'better-sqlite3'
 import { app, nativeImage } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { runMigrations } from './migrate.mjs'
-import { createDao } from './dao.mjs'
+import { runMigrations } from './migrate.ts'
+import { createDao } from './dao.ts'
+import type { Dao } from './dao.ts'
 
-let db = null
-let dao = null
+type Db = InstanceType<typeof Database>
+
+let db: Db | null = null
+let dao: Dao | null = null
 
 const DB_FILE = 'suhui.db'
 /* 旧版（wuji-desktop）数据目录：包名变更后 Electron 的 userData 路径随之变化，
@@ -26,7 +29,7 @@ export const paths = {
   papersDir: () => path.join(app.getPath('userData'), 'papers')
 }
 
-function openDb() {
+function openDb(): Db {
   const conn = new Database(paths.dbPath())
   conn.pragma('journal_mode = WAL')
   conn.pragma('synchronous = NORMAL')
@@ -35,7 +38,7 @@ function openDb() {
 }
 
 /** 损坏兜底：db(+wal/shm) 与 media/ 整体转存到 corrupted-<时间戳>/，绝不覆盖隐藏 */
-function quarantine() {
+function quarantine(): string {
   const stamp = new Date()
     .toISOString()
     .replace(/[:.]/g, '-')
@@ -55,7 +58,7 @@ function quarantine() {
 }
 
 /** 旧版数据迁移：wuji-desktop userData → suhui-desktop userData（首次启动执行，移动即迁移，旧目录保留为空壳） */
-function migrateLegacyData() {
+function migrateLegacyData(): void {
   const legacyDir = LEGACY_DATA_DIR()
   const oldDb = path.join(legacyDir, LEGACY_DB_FILE)
   const newDb = paths.dbPath()
@@ -77,14 +80,14 @@ function migrateLegacyData() {
  * 应用启动时调用。返回 { quarantined: string|null }
  * quarantined 非空 = 检测到损坏，已转存并重建空库（调用方负责提示用户）
  */
-export function initDb() {
+export function initDb(): { quarantined: string | null } {
   migrateLegacyData()
   fs.mkdirSync(paths.mediaDir(), { recursive: true })
   fs.mkdirSync(paths.papersDir(), { recursive: true })
   db = openDb()
 
   const check = db.pragma('quick_check', { simple: true })
-  let quarantined = null
+  let quarantined: string | null = null
   if (check !== 'ok') {
     try { db.close() } catch { /* 忽略 */ }
     quarantined = quarantine()
@@ -92,7 +95,7 @@ export function initDb() {
   }
 
   runMigrations(db)
-  const getDims = (file) => {
+  const getDims = (file: string): { width: number; height: number } => {
     try {
       const s = nativeImage.createFromPath(file).getSize()
       return { width: s.width, height: s.height }
@@ -104,17 +107,17 @@ export function initDb() {
   return { quarantined }
 }
 
-export function getDb() {
+export function getDb(): Db {
   if (!db) throw new Error('数据库尚未初始化（initDb 未调用）')
   return db
 }
 
-export function getDao() {
+export function getDao(): Dao {
   if (!dao) throw new Error('DAO 尚未初始化（initDb 未调用）')
   return dao
 }
 
-export function closeDb() {
+export function closeDb(): void {
   if (db) {
     try { db.close() } catch { /* 忽略 */ }
     db = null

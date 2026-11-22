@@ -7,8 +7,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { runMigrations } from '../electron/db/migrate.mjs'
-import { createDao, localDay, localDateTime } from '../electron/db/dao.mjs'
+import { runMigrations } from '../electron/db/migrate.ts'
+import { createDao, localDay, localDateTime } from '../electron/db/dao.ts'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 

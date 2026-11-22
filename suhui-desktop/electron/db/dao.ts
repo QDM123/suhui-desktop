@@ -1,67 +1,95 @@
 /* ============================================================
    DAO —— 数据访问层（Phase 1）
-   ESM（.mjs）：主进程打包用，node 冒烟测试直跑用
+   ESM（.ts）：主进程打包用，node 冒烟测试直跑用（--experimental-strip-types，仅可擦除语法）
    所有写操作走事务（计划 §2.3）
    图片尺寸探测通过 opts.getDims 注入（主进程传 nativeImage 实现）
    ============================================================ */
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import type Database from 'better-sqlite3'
+import type {
+  AlbumMediaItem, BinItem, CategoryRow, CategoryWithCount, DraftInit, EntryDetail,
+  EntryPatch, EntryRow, ExportEntry, ExportFileRow, ExportOptions, MediaRow, Paper,
+  PaperGenConfig, PaperRow, RangeEntry, TagRef, TagWithUsed, TimelineEntry, TodayItem
+} from '../../src/types/domain.ts'
 
-const pad = (n) => String(n).padStart(2, '0')
-export function localDay(d = new Date()) {
+type Db = InstanceType<typeof Database>
+
+const pad = (n: number): string => String(n).padStart(2, '0')
+export function localDay(d: Date = new Date()): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
-export function localDateTime(d = new Date()) {
+export function localDateTime(d: Date = new Date()): string {
   return `${localDay(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 /** 解析 "YYYY-MM-DD" + "HH:mm" → Date（本地时间）；非法返回 null */
-export function parseDayTime(day, time) {
+export function parseDayTime(day?: string | null, time?: string | null): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) return null
   const tm = /^\d{2}:\d{2}$/.test(time || '') ? time : '00:00'
   const d = new Date(`${day}T${tm}:00`)
   return isNaN(d.getTime()) ? null : d
 }
 
-export const IMG_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'])
+export const IMG_EXT = new Set<string>(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'])
 
 /** 每日新增上限：已按用户决定移除 */
 
 /** patch 白名单（安全：渲染进程只能改这些列） */
-const PATCHABLE = new Set([
+const PATCHABLE = new Set<string>([
   'title', 'content', 'occurred_at', 'category_id',
   'weather', 'mood', 'address', 'background'
 ])
 
-export function createDao(db, mediaDir, opts = {}) {
+export interface DaoOptions {
+  /** 图片尺寸探测（主进程传 nativeImage 实现；缺省 0×0） */
+  getDims?: (file: string) => { width: number; height: number }
+}
+
+export interface PaperInput {
+  name: string
+  kind: 'image' | 'gen'
+  file_name?: string | null
+  config?: PaperGenConfig | null
+}
+
+/** ENTRY_SELECT 投影原始行（tag_names 为 GROUP_CONCAT 聚合列，映射后移除） */
+type EntrySelectRow = EntryRow & {
+  category_name: string | null
+  category_color: string | null
+  media_count: number
+  tag_names?: string | null
+}
+
+export function createDao(db: Db, mediaDir: string, opts: DaoOptions = {}) {
   const getDims = opts.getDims || (() => ({ width: 0, height: 0 }))
 
   /* ---------- 读取 ---------- */
 
-  const stmtGetEntry = db.prepare('SELECT * FROM entries WHERE id = ?')
-  const stmtGetMedia = db.prepare(
+  const stmtGetEntry = db.prepare<[string], EntryRow>('SELECT * FROM entries WHERE id = ?')
+  const stmtGetMedia = db.prepare<[string], MediaRow>(
     'SELECT * FROM media WHERE entry_id = ? ORDER BY sort, created_at'
   )
-  const stmtGetTags = db.prepare(
+  const stmtGetTags = db.prepare<[string], TagRef>(
     `SELECT t.id, t.name FROM tags t
      JOIN entry_tags et ON et.tag_id = t.id
      WHERE et.entry_id = ? ORDER BY t.name`
   )
 
-  function titlePreview(e) {
+  function titlePreview(e: { title: string; content: string | null }): string {
     if (e.title) return e.title
     const first = (e.content || '').split('\n').map((s) => s.trim()).find(Boolean)
     return first ? first.slice(0, 20) : '（无标题）'
   }
 
-  function getEntry(id) {
+  function getEntry(id: string): EntryDetail | null {
     const entry = stmtGetEntry.get(id)
     if (!entry) return null
     return { entry, tags: stmtGetTags.all(id), media: stmtGetMedia.all(id) }
   }
 
-  function listToday() {
-    const rows = db.prepare(
+  function listToday(): TodayItem[] {
+    const rows = db.prepare<[string], Pick<EntryRow, 'id' | 'title' | 'content' | 'occurred_at'>>(
       `SELECT id, title, content, occurred_at FROM entries
        WHERE day = ? AND deleted = 0
        ORDER BY occurred_at DESC`
@@ -74,22 +102,22 @@ export function createDao(db, mediaDir, opts = {}) {
   }
 
   /** 今日已有篇数（Phase 8 提醒用：今天没写才提醒） */
-  function countToday() {
-    return db.prepare(
+  function countToday(): number {
+    return db.prepare<[string], { c: number }>(
       'SELECT COUNT(*) AS c FROM entries WHERE day = ? AND deleted = 0'
-    ).get(localDay()).c
+    ).get(localDay())!.c // COUNT 必有行
   }
 
-  function recentAddresses(limit = 4) {
-    return db.prepare(
+  function recentAddresses(limit = 4): string[] {
+    return db.prepare<[number], { address: string }>(
       `SELECT DISTINCT address FROM entries
        WHERE address <> '' AND deleted = 0
        ORDER BY updated_at DESC LIMIT ?`
     ).all(limit).map((r) => r.address)
   }
 
-  function listCategories() {
-    return db.prepare(
+  function listCategories(): CategoryWithCount[] {
+    return db.prepare<[], CategoryWithCount>(
       `SELECT c.*,
               (SELECT COUNT(*) FROM entries e WHERE e.category_id = c.id AND e.deleted = 0) AS entry_count
        FROM categories c ORDER BY c.sort, c.id`
@@ -97,9 +125,9 @@ export function createDao(db, mediaDir, opts = {}) {
   }
 
   /* 拖拽排序：按传入 id 顺序重写 sort（阶段 9 追加） */
-  function reorderCategories(ids) {
-    const upd = db.prepare('UPDATE categories SET sort = ? WHERE id = ?')
-    db.transaction((list) => {
+  function reorderCategories(ids: number[]): { ok: true } {
+    const upd = db.prepare<[number, number], never>('UPDATE categories SET sort = ? WHERE id = ?')
+    db.transaction((list: number[]) => {
       list.forEach((id, i) => upd.run(i, id))
     })(ids)
     return { ok: true }
@@ -110,80 +138,82 @@ export function createDao(db, mediaDir, opts = {}) {
   const COLOR_RE = /^#[0-9a-fA-F]{6}$/
   const DEFAULT_CATEGORY_ID = 1
 
-  function createCategory(name, color) {
+  function createCategory(name: string, color: string): CategoryRow {
     name = String(name || '').trim()
     if (!name) throw new Error('分类名不能为空')
     if (!COLOR_RE.test(color || '')) throw new Error('颜色格式不正确')
-    const maxSort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS s FROM categories').get().s
-    const r = db.prepare('INSERT INTO categories (name, color, sort) VALUES (?, ?, ?)')
-      .run(name, color, maxSort + 1)
-    return db.prepare('SELECT * FROM categories WHERE id = ?').get(r.lastInsertRowid)
+    const maxSort = db.prepare<[], { s: number }>('SELECT COALESCE(MAX(sort), 0) AS s FROM categories').get()!.s
+    const r = db.prepare<[string, string, number], never>(
+      'INSERT INTO categories (name, color, sort) VALUES (?, ?, ?)'
+    ).run(name, color, maxSort + 1)
+    return db.prepare<[number | bigint], CategoryRow>('SELECT * FROM categories WHERE id = ?').get(r.lastInsertRowid)!
   }
 
-  function updateCategory(id, { name, color }) {
-    const cur = db.prepare('SELECT * FROM categories WHERE id = ?').get(id)
+  function updateCategory(id: number, { name, color }: { name?: string; color?: string }): { ok: true } {
+    const cur = db.prepare<[number], CategoryRow>('SELECT * FROM categories WHERE id = ?').get(id)
     if (!cur) throw new Error('分类不存在')
     const newName = name != null ? String(name).trim() : cur.name
     if (!newName) throw new Error('分类名不能为空')
     const newColor = color != null && COLOR_RE.test(color) ? color : cur.color
-    db.prepare('UPDATE categories SET name = ?, color = ? WHERE id = ?').run(newName, newColor, id)
+    db.prepare<[string, string, number], never>('UPDATE categories SET name = ?, color = ? WHERE id = ?').run(newName, newColor, id)
     return { ok: true }
   }
 
   /** 删除分类：非空时其日记移入默认分类（id=1，不可删除） */
-  const deleteCategory = db.transaction((id) => {
+  const deleteCategory = db.transaction((id: number): { ok: true; moved: number } => {
     if (id === DEFAULT_CATEGORY_ID) {
-      const err = new Error('默认分类不可删除')
+      const err = new Error('默认分类不可删除') as Error & { code: string }
       err.code = 'DEFAULT_CAT'
       throw err
     }
-    const cnt = db.prepare(
+    const cnt = db.prepare<[number], { c: number }>(
       'SELECT COUNT(*) AS c FROM entries WHERE category_id = ? AND deleted = 0'
-    ).get(id).c
+    ).get(id)!.c
     if (cnt > 0) {
-      db.prepare('UPDATE entries SET category_id = ? WHERE category_id = ?')
+      db.prepare<[number, number], never>('UPDATE entries SET category_id = ? WHERE category_id = ?')
         .run(DEFAULT_CATEGORY_ID, id)
     }
-    db.prepare('DELETE FROM categories WHERE id = ?').run(id)
+    db.prepare<[number], never>('DELETE FROM categories WHERE id = ?').run(id)
     return { ok: true, moved: cnt }
   })
 
   /* ---------- 标签管理（Phase 3） ---------- */
 
-  function renameTag(id, name) {
+  function renameTag(id: number, name: string): { ok: true } {
     name = String(name || '').trim().replace(/^#/, '')
     if (!name) throw new Error('标签名不能为空')
     try {
-      db.prepare('UPDATE tags SET name = ? WHERE id = ?').run(name, id)
+      db.prepare<[string, number], never>('UPDATE tags SET name = ? WHERE id = ?').run(name, id)
       return { ok: true }
     } catch (e) {
-      if (String(e.message).includes('UNIQUE')) throw new Error('已存在同名标签')
+      if (String((e as Error).message).includes('UNIQUE')) throw new Error('已存在同名标签')
       throw e
     }
   }
 
   /** 把 from 标签全部并入 to（from 删除，链接去重） */
-  const mergeTags = db.transaction((fromId, toId) => {
+  const mergeTags = db.transaction((fromId: number, toId: number): { ok: true } => {
     if (fromId === toId) throw new Error('不能合并到自身')
-    const from = db.prepare('SELECT * FROM tags WHERE id = ?').get(fromId)
-    const to = db.prepare('SELECT * FROM tags WHERE id = ?').get(toId)
+    const from = db.prepare<[number], { id: number; name: string }>('SELECT * FROM tags WHERE id = ?').get(fromId)
+    const to = db.prepare<[number], { id: number; name: string }>('SELECT * FROM tags WHERE id = ?').get(toId)
     if (!from || !to) throw new Error('标签不存在')
-    db.prepare('INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) SELECT entry_id, ? FROM entry_tags WHERE tag_id = ?')
-      .run(toId, fromId)
-    db.prepare('DELETE FROM entry_tags WHERE tag_id = ?').run(fromId)
-    db.prepare('DELETE FROM tags WHERE id = ?').run(fromId)
+    db.prepare<[number, number], never>(
+      'INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) SELECT entry_id, ? FROM entry_tags WHERE tag_id = ?'
+    ).run(toId, fromId)
+    db.prepare<[number], never>('DELETE FROM entry_tags WHERE tag_id = ?').run(fromId)
+    db.prepare<[number], never>('DELETE FROM tags WHERE id = ?').run(fromId)
     return { ok: true }
   })
 
   /** 删除孤儿标签（0 引用） */
-  function deleteTag(id) {
-    const used = db.prepare('SELECT COUNT(*) AS c FROM entry_tags WHERE tag_id = ?').get(id).c
+  function deleteTag(id: number): { ok: true } {
+    const used = db.prepare<[number], { c: number }>('SELECT COUNT(*) AS c FROM entry_tags WHERE tag_id = ?').get(id)!.c
     if (used > 0) {
-      const err = new Error('该标签仍被 ' + used + ' 篇日记使用')
+      const err = new Error('该标签仍被 ' + used + ' 篇日记使用') as Error & { code: string }
       err.code = 'TAG_IN_USE'
       throw err
     }
-    db.prepare('DELETE FROM tags WHERE id = ?').run(id)
+    db.prepare<[number], never>('DELETE FROM tags WHERE id = ?').run(id)
     return { ok: true }
   }
 
@@ -197,17 +227,17 @@ export function createDao(db, mediaDir, opts = {}) {
     FROM entries e
     LEFT JOIN categories c ON c.id = e.category_id`
 
-  function mapEntryRow(r) {
+  function mapEntryRow(r: EntrySelectRow): TimelineEntry {
     const tags = r.tag_names ? r.tag_names.split('\u001f') : []
     delete r.tag_names
     return { ...r, tags, title: r.title || titlePreview(r) }
   }
 
-  function listEntries(categoryId) {
+  function listEntries(categoryId?: number | null): TimelineEntry[] {
     const sql = `${ENTRY_SELECT}
       WHERE e.deleted = 0 ${categoryId ? 'AND e.category_id = ?' : ''}
       ORDER BY e.occurred_at DESC, e.created_at DESC`
-    const rows = categoryId ? db.prepare(sql).all(categoryId) : db.prepare(sql).all()
+    const rows = categoryId ? db.prepare<[number], EntrySelectRow>(sql).all(categoryId) : db.prepare<[], EntrySelectRow>(sql).all()
     return rows.map(mapEntryRow)
   }
 
@@ -215,14 +245,14 @@ export function createDao(db, mediaDir, opts = {}) {
    * 全局搜索（Phase 3）：标题+正文（≥3 字走 FTS5 trigram，短词 LIKE 兜底）+ 标签名
    * 可叠加分类过滤；返回形状与 listEntries 一致
    */
-  function searchEntries(q, categoryId) {
+  function searchEntries(q: string, categoryId?: number | null): TimelineEntry[] {
     q = String(q || '').trim()
     if (!q) return listEntries(categoryId)
 
-    let ftsIds = []
+    let ftsIds: number[] = []
     if (q.length >= 3) {
       try {
-        ftsIds = db.prepare('SELECT rowid FROM entries_fts WHERE entries_fts MATCH ?')
+        ftsIds = db.prepare<[string], { rowid: number }>('SELECT rowid FROM entries_fts WHERE entries_fts MATCH ?')
           .all(`"${q.replace(/"/g, '""')}"`)
           .map((r) => r.rowid)
       } catch { /* FTS 异常时退回 LIKE */ }
@@ -230,16 +260,16 @@ export function createDao(db, mediaDir, opts = {}) {
     const like = `%${q.replace(/[\\%_]/g, (m) => '\\' + m)}%`
 
     const conds = ['e.deleted = 0']
-    const params = []
+    const params: (string | number)[] = []
     if (categoryId) { conds.push('e.category_id = ?'); params.push(categoryId) }
     const orParts = []
     if (ftsIds.length) {
       orParts.push(`e.rowid IN (${ftsIds.map(() => '?').join(',')})`)
       params.push(...ftsIds)
     }
-    orParts.push(`e.title LIKE ? ESCAPE '\\'`)
+    orParts.push('e.title LIKE ? ESCAPE \'\\\'')
     params.push(like)
-    orParts.push(`e.content LIKE ? ESCAPE '\\'`)
+    orParts.push('e.content LIKE ? ESCAPE \'\\\'')
     params.push(like)
     orParts.push(
       `e.id IN (SELECT et.entry_id FROM entry_tags et JOIN tags t ON t.id = et.tag_id WHERE t.name LIKE ? ESCAPE '\\')`
@@ -250,12 +280,12 @@ export function createDao(db, mediaDir, opts = {}) {
     const sql = `${ENTRY_SELECT}
       WHERE ${conds.join(' AND ')}
       ORDER BY e.occurred_at DESC, e.created_at DESC`
-    return db.prepare(sql).all(...params).map(mapEntryRow)
+    return db.prepare<(string | number)[], EntrySelectRow>(sql).all(...params).map(mapEntryRow)
   }
 
   /** 日期范围内的日记（Phase 4：日历/时光隧道聚合用，按日升序） */
-  function entriesInRange(fromDay, toDay) {
-    return db.prepare(
+  function entriesInRange(fromDay: string, toDay: string): RangeEntry[] {
+    return db.prepare<[string, string], Pick<EntryRow, 'id' | 'day' | 'occurred_at' | 'title' | 'content'>>(
       `SELECT id, day, occurred_at, title, content FROM entries
        WHERE deleted = 0 AND day BETWEEN ? AND ?
        ORDER BY occurred_at ASC, created_at ASC`
@@ -268,8 +298,8 @@ export function createDao(db, mediaDir, opts = {}) {
   }
 
   /** 最近一篇的天气（Phase 4「今天」卡片，取最近创建的一篇） */
-  function latestWeather() {
-    const r = db.prepare(
+  function latestWeather(): number | null {
+    const r = db.prepare<[], { weather: number }>(
       'SELECT weather FROM entries WHERE deleted = 0 ORDER BY created_at DESC, rowid DESC LIMIT 1'
     ).get()
     return r ? r.weather : null
@@ -278,8 +308,8 @@ export function createDao(db, mediaDir, opts = {}) {
   /* ---------- 相册 / 回收站（Phase 5） ---------- */
 
   /** 相册：全部未删除日记的媒体，按日记时间倒序 */
-  function listAllMedia() {
-    return db.prepare(
+  function listAllMedia(): AlbumMediaItem[] {
+    return db.prepare<[], Pick<EntryRow, 'id' | 'day' | 'title' | 'content'> & Pick<MediaRow, 'entry_id' | 'file_name' | 'orig_name'>>(
       `SELECT m.id, m.entry_id, m.file_name, m.orig_name, e.day, e.title, e.content
        FROM media m JOIN entries e ON e.id = m.entry_id
        WHERE e.deleted = 0
@@ -295,8 +325,8 @@ export function createDao(db, mediaDir, opts = {}) {
   }
 
   /** 回收站列表 */
-  function listDeleted() {
-    return db.prepare(
+  function listDeleted(): BinItem[] {
+    return db.prepare<[], Pick<EntryRow, 'id' | 'title' | 'content' | 'day' | 'occurred_at' | 'deleted_at'>>(
       `SELECT id, title, content, day, occurred_at, deleted_at
        FROM entries WHERE deleted = 1
        ORDER BY deleted_at DESC`
@@ -311,16 +341,16 @@ export function createDao(db, mediaDir, opts = {}) {
   }
 
   /** 从回收站恢复 */
-  function restore(id) {
-    const r = db.prepare(
+  function restore(id: string): { ok: boolean } {
+    const r = db.prepare<[string], never>(
       'UPDATE entries SET deleted = 0, deleted_at = NULL WHERE id = ? AND deleted = 1'
     ).run(id)
     return { ok: r.changes > 0 }
   }
 
   /** 彻底删除：记录 + 媒体记录 + 媒体文件 */
-  function purge(id) {
-    const mediaRows = db.prepare('SELECT * FROM media WHERE entry_id = ?').all(id)
+  function purge(id: string): { ok: true } | { ok: false; error: string } {
+    const mediaRows = db.prepare<[string], MediaRow>('SELECT * FROM media WHERE entry_id = ?').all(id)
     for (const m of mediaRows) {
       const f = path.join(mediaDir, m.file_name)
       if (fs.existsSync(f)) {
@@ -328,17 +358,17 @@ export function createDao(db, mediaDir, opts = {}) {
       }
     }
     db.transaction(() => {
-      db.prepare('DELETE FROM media WHERE entry_id = ?').run(id)
-      db.prepare('DELETE FROM entry_tags WHERE entry_id = ?').run(id)
-      db.prepare('DELETE FROM entries WHERE id = ?').run(id)
+      db.prepare<[string], never>('DELETE FROM media WHERE entry_id = ?').run(id)
+      db.prepare<[string], never>('DELETE FROM entry_tags WHERE entry_id = ?').run(id)
+      db.prepare<[string], never>('DELETE FROM entries WHERE id = ?').run(id)
     })()
     return { ok: true }
   }
 
   /** 30 天保留期清理（启动时调用；retention/now 可注入便于测试） */
-  function cleanupExpired(retentionDays = 30, now = new Date()) {
+  function cleanupExpired(retentionDays = 30, now = new Date()): { purged: number } {
     const cutoff = localDateTime(new Date(now.getTime() - retentionDays * 86400000))
-    const expired = db.prepare(
+    const expired = db.prepare<[string], { id: string }>(
       'SELECT id FROM entries WHERE deleted = 1 AND deleted_at IS NOT NULL AND deleted_at < ?'
     ).all(cutoff)
     let purged = 0
@@ -351,16 +381,16 @@ export function createDao(db, mediaDir, opts = {}) {
   /* ---------- 导出（Phase 7） ---------- */
 
   /** 导出取数：按分类（多选，空=全部）+ 日期范围，时间正序，附标签与媒体 */
-  function listForExport({ categoryIds = [], fromDay = null, toDay = null } = {}) {
+  function listForExport({ categoryIds = [], fromDay = null, toDay = null }: ExportOptions = {}): ExportEntry[] {
     const conds = ['e.deleted = 0']
-    const params = []
+    const params: (string | number)[] = []
     if (categoryIds?.length) {
       conds.push(`e.category_id IN (${categoryIds.map(() => '?').join(',')})`)
       params.push(...categoryIds)
     }
     if (fromDay) { conds.push('e.day >= ?'); params.push(fromDay) }
     if (toDay) { conds.push('e.day <= ?'); params.push(toDay) }
-    const rows = db.prepare(
+    const rows = db.prepare<(string | number)[], EntryRow & { category_name: string | null }>(
       `SELECT e.*, c.name AS category_name FROM entries e
        LEFT JOIN categories c ON c.id = e.category_id
        WHERE ${conds.join(' AND ')}
@@ -370,20 +400,20 @@ export function createDao(db, mediaDir, opts = {}) {
 
     const ids = rows.map((r) => r.id)
     const inPh = ids.map(() => '?').join(',')
-    const mediaMap = new Map()
-    for (const m of db.prepare(
+    const mediaMap = new Map<string, MediaRow[]>()
+    for (const m of db.prepare<string[], MediaRow>(
       `SELECT * FROM media WHERE entry_id IN (${inPh}) ORDER BY sort, created_at`
     ).all(...ids)) {
       if (!mediaMap.has(m.entry_id)) mediaMap.set(m.entry_id, [])
-      mediaMap.get(m.entry_id).push(m)
+      mediaMap.get(m.entry_id)!.push(m)
     }
-    const tagMap = new Map()
-    for (const t of db.prepare(
+    const tagMap = new Map<string, string[]>()
+    for (const t of db.prepare<string[], { entry_id: string; name: string }>(
       `SELECT et.entry_id, t.name FROM entry_tags et JOIN tags t ON t.id = et.tag_id
        WHERE et.entry_id IN (${inPh}) ORDER BY t.name`
     ).all(...ids)) {
       if (!tagMap.has(t.entry_id)) tagMap.set(t.entry_id, [])
-      tagMap.get(t.entry_id).push(t.name)
+      tagMap.get(t.entry_id)!.push(t.name)
     }
     return rows.map((e) => ({
       ...e,
@@ -393,61 +423,61 @@ export function createDao(db, mediaDir, opts = {}) {
     }))
   }
 
-  function addExportFile(type, filePath, size) {
-    const r = db.prepare(
+  function addExportFile(type: string, filePath: string, size: number): ExportFileRow {
+    const r = db.prepare<[string, string, number, string], never>(
       'INSERT INTO export_files (type, path, size, created_at) VALUES (?, ?, ?, ?)'
     ).run(type, filePath, size, localDateTime())
-    return db.prepare('SELECT * FROM export_files WHERE id = ?').get(r.lastInsertRowid)
+    return db.prepare<[number | bigint], ExportFileRow>('SELECT * FROM export_files WHERE id = ?').get(r.lastInsertRowid)!
   }
 
-  function listExportFiles() {
-    return db.prepare('SELECT * FROM export_files ORDER BY created_at DESC, id DESC').all()
+  function listExportFiles(): ExportFileRow[] {
+    return db.prepare<[], ExportFileRow>('SELECT * FROM export_files ORDER BY created_at DESC, id DESC').all()
   }
 
   /** 删除导出记录（不动已导出文件本身） */
-  function deleteExportFile(id) {
-    db.prepare('DELETE FROM export_files WHERE id = ?').run(id)
+  function deleteExportFile(id: number): { ok: true } {
+    db.prepare<[number], never>('DELETE FROM export_files WHERE id = ?').run(id)
     return { ok: true }
   }
 
   /* ---------- 信纸 DIY（Phase 9 追加，用户确认方案：图片上传 + 参数生成） ---------- */
 
-  function listPapers() {
-    return db.prepare('SELECT * FROM papers ORDER BY created_at DESC, id').all()
-      .map((r) => ({ ...r, config: r.config ? JSON.parse(r.config) : null }))
+  function listPapers(): Paper[] {
+    return db.prepare<[], PaperRow>('SELECT * FROM papers ORDER BY created_at DESC, id').all()
+      .map((r) => ({ ...r, config: r.config ? (JSON.parse(r.config) as PaperGenConfig) : null }))
   }
 
-  function addPaper({ name, kind, file_name = null, config = null }) {
+  function addPaper({ name, kind, file_name = null, config = null }: PaperInput): PaperRow {
     name = String(name || '').trim()
     if (!name) throw new Error('信纸名称不能为空')
     if (kind !== 'image' && kind !== 'gen') throw new Error('信纸类型不正确')
     const id = randomUUID()
-    db.prepare(
+    db.prepare<[string, string, string, string | null, string | null, string], never>(
       'INSERT INTO papers (id, name, kind, file_name, config, created_at) VALUES (?, ?, ?, ?, ?, ?)'
     ).run(id, name, kind, file_name, config ? JSON.stringify(config) : null, localDateTime())
-    return db.prepare('SELECT * FROM papers WHERE id = ?').get(id)
+    return db.prepare<[string], PaperRow>('SELECT * FROM papers WHERE id = ?').get(id)!
   }
 
-  function deletePaper(id) {
-    db.prepare('DELETE FROM papers WHERE id = ?').run(id)
+  function deletePaper(id: string): { ok: true } {
+    db.prepare<[string], never>('DELETE FROM papers WHERE id = ?').run(id)
     return { ok: true }
   }
 
-  function getPaperFile(id) {
-    return db.prepare('SELECT * FROM papers WHERE id = ?').get(id)
+  function getPaperFile(id: string): PaperRow | undefined {
+    return db.prepare<[string], PaperRow>('SELECT * FROM papers WHERE id = ?').get(id)
   }
 
   /** 软删 → 回收站（Phase 2，报告 §3.2） */
-  function softDelete(id) {
+  function softDelete(id: string): { ok: boolean } {
     const now = localDateTime()
-    const r = db.prepare(
+    const r = db.prepare<[string, string], never>(
       'UPDATE entries SET deleted = 1, deleted_at = ? WHERE id = ? AND deleted = 0'
     ).run(now, id)
     return { ok: r.changes > 0 }
   }
 
-  function listAllTags() {
-    return db.prepare(
+  function listAllTags(): TagWithUsed[] {
+    return db.prepare<[], TagWithUsed>(
       `SELECT t.id, t.name, COUNT(et.entry_id) AS used
        FROM tags t LEFT JOIN entry_tags et ON et.tag_id = t.id
        GROUP BY t.id ORDER BY used DESC, t.name`
@@ -459,11 +489,11 @@ export function createDao(db, mediaDir, opts = {}) {
   /**
    * 新建日记记录（编辑器首次任意变更时调用，计划 §2.3「新建即落点」）
    */
-  const ensureDraft = db.transaction((init = {}) => {
+  const ensureDraft = db.transaction((init: DraftInit = {}): { id: string } => {
     const dt = parseDayTime(init.occurredDay, init.occurredTime) || new Date()
     const now = localDateTime()
     const id = randomUUID()
-    db.prepare(
+    db.prepare<unknown[], never>(
       `INSERT INTO entries
          (id, title, content, occurred_at, created_at, updated_at,
           year_month, day, weekday, category_id, weather, mood, address, background, rev)
@@ -488,12 +518,12 @@ export function createDao(db, mediaDir, opts = {}) {
   })
 
   /** 字段级更新：rev+1、updated_at 自动维护；occurred_at 变更联动分组键 */
-  const patchEntry = db.transaction((id, patch) => {
+  const patchEntry = db.transaction((id: string, patch: EntryPatch): { rev: number; updated_at: string } => {
     const cur = stmtGetEntry.get(id)
     if (!cur) throw new Error('日记不存在：' + id)
 
-    const sets = []
-    const vals = []
+    const sets: string[] = []
+    const vals: unknown[] = []
     for (const [k, v] of Object.entries(patch || {})) {
       if (!PATCHABLE.has(k)) continue
       sets.push(`${k} = ?`)
@@ -511,42 +541,44 @@ export function createDao(db, mediaDir, opts = {}) {
     const now = localDateTime()
     sets.push('rev = rev + 1', 'updated_at = ?')
     vals.push(now, id)
-    db.prepare(`UPDATE entries SET ${sets.join(', ')} WHERE id = ?`).run(...vals)
+    db.prepare<unknown[], never>(`UPDATE entries SET ${sets.join(', ')} WHERE id = ?`).run(...vals)
     return { rev: cur.rev + 1, updated_at: now }
   })
 
   /** 设置整篇标签（名字列表，全量替换），并 touch 条目 */
-  const setTags = db.transaction((id, names) => {
+  const setTags = db.transaction((id: string, names: string[]): { tags: TagRef[]; rev: number; updated_at: string } => {
     const cur = stmtGetEntry.get(id)
     if (!cur) throw new Error('日记不存在：' + id)
     const clean = [...new Set((names || []).map((s) => String(s).trim()).filter(Boolean))]
-    db.prepare('DELETE FROM entry_tags WHERE entry_id = ?').run(id)
-    const insLink = db.prepare('INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?, ?)')
-    const insTag = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)')
-    const getTag = db.prepare('SELECT id FROM tags WHERE name = ?')
+    db.prepare<[string], never>('DELETE FROM entry_tags WHERE entry_id = ?').run(id)
+    const insLink = db.prepare<[string, number], never>('INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?, ?)')
+    const insTag = db.prepare<[string], never>('INSERT OR IGNORE INTO tags (name) VALUES (?)')
+    const getTag = db.prepare<[string], { id: number }>('SELECT id FROM tags WHERE name = ?')
     for (const name of clean) {
       insTag.run(name)
-      insLink.run(id, getTag.get(name).id)
+      insLink.run(id, getTag.get(name)!.id)
     }
     const now = localDateTime()
-    db.prepare('UPDATE entries SET rev = rev + 1, updated_at = ? WHERE id = ?').run(now, id)
+    db.prepare<[string, string], never>('UPDATE entries SET rev = rev + 1, updated_at = ? WHERE id = ?').run(now, id)
     return { tags: stmtGetTags.all(id), rev: cur.rev + 1, updated_at: now }
   })
 
   /* ---------- 媒体（原图直存、不压缩） ---------- */
 
-  const insertMedia = db.prepare(
+  const insertMedia = db.prepare<
+    [string, string, string, string | null, number | null, number, number, number, string], never
+  >(
     `INSERT INTO media (id, entry_id, file_name, orig_name, size, width, height, sort, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-  const nextSort = db.prepare(
+  const nextSort = db.prepare<[string], { s: number }>(
     'SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM media WHERE entry_id = ?'
   )
-  const stmtGetMediaAll = db.prepare(
+  const stmtGetMediaAll = db.prepare<[string], MediaRow>(
     'SELECT * FROM media WHERE entry_id = ? ORDER BY sort, created_at'
   )
 
-  function addMediaFile(entryId, srcPath, displayName) {
+  function addMediaFile(entryId: string, srcPath: string, displayName?: string | null): { skipped: string } | { added: MediaRow | undefined } {
     const ext = path.extname(srcPath).toLowerCase()
     if (!IMG_EXT.has(ext)) return { skipped: displayName || srcPath }
     const fileName = randomUUID() + ext
@@ -559,39 +591,40 @@ export function createDao(db, mediaDir, opts = {}) {
     insertMedia.run(
       id, entryId, fileName, displayName || path.basename(srcPath),
       stat.size, dims.width, dims.height,
-      nextSort.get(entryId).s, localDateTime()
+      nextSort.get(entryId)!.s, localDateTime()
     )
     return { added: stmtGetMediaAll.all(entryId).find((m) => m.id === id) }
   }
 
-  function addMediaBuffer(entryId, suggestedName, buf) {
+  function addMediaBuffer(entryId: string, suggestedName: string, buf: Uint8Array | ArrayBuffer): MediaRow | undefined {
     let ext = path.extname(suggestedName || '').toLowerCase()
     if (!IMG_EXT.has(ext)) ext = '.png'
     const fileName = randomUUID() + ext
     const dst = path.join(mediaDir, fileName)
     fs.mkdirSync(mediaDir, { recursive: true })
-    fs.writeFileSync(dst, Buffer.from(buf)) // 原图字节直存
+    // 原图字节直存（Buffer.from 对 Uint8Array / ArrayBuffer 各有重载，联合类型需收窄）
+    fs.writeFileSync(dst, buf instanceof Uint8Array ? Buffer.from(buf) : Buffer.from(buf))
     const stat = fs.statSync(dst)
     const dims = getDims(dst)
     const id = randomUUID()
     insertMedia.run(
       id, entryId, fileName, suggestedName || fileName,
       stat.size, dims.width, dims.height,
-      nextSort.get(entryId).s, localDateTime()
+      nextSort.get(entryId)!.s, localDateTime()
     )
     return stmtGetMediaAll.all(entryId).find((m) => m.id === id)
   }
 
   /** 删除媒体：先删文件（失败则中止），成功后事务删记录 */
-  function removeMedia(id) {
-    const row = db.prepare('SELECT * FROM media WHERE id = ?').get(id)
+  function removeMedia(id: string): { ok: true } | { ok: false; error: string } {
+    const row = db.prepare<[string], MediaRow>('SELECT * FROM media WHERE id = ?').get(id)
     if (!row) return { ok: true }
     const file = path.join(mediaDir, row.file_name)
     if (fs.existsSync(file)) {
       try { fs.unlinkSync(file) } catch (e) { return { ok: false, error: String(e) } }
     }
     db.transaction(() => {
-      db.prepare('DELETE FROM media WHERE id = ?').run(id)
+      db.prepare<[string], never>('DELETE FROM media WHERE id = ?').run(id)
     })()
     return { ok: true }
   }
@@ -610,3 +643,5 @@ export function createDao(db, mediaDir, opts = {}) {
     titlePreview
   }
 }
+
+export type Dao = ReturnType<typeof createDao>
