@@ -20,7 +20,7 @@
             @click="clickCell(c)"
           >
             <span class="n">{{ c.num }}</span>
-            <span v-for="(t, i) in c.previews" :key="i" class="cal-ev">{{ t }}</span>
+            <span v-for="(t, i) in c.previews" :key="i" class="cal-ev" :title="t">{{ t }}</span>
             <span v-if="(c.more ?? 0) > 0" class="cal-ev more">+{{ c.more }} 篇</span>
             <span v-if="c.isTunnel" class="cal-ev more">时光隧道</span>
           </div>
