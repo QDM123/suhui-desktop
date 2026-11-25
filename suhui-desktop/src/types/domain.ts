@@ -225,29 +225,29 @@ export interface ReminderState {
   time: string   // "HH:mm"
 }
 
-/** 自动备份设置（backup.getSettings） */
-export interface BackupSettings {
-  dir: string           // 自定义目录；空 = 数据目录 backups/
-  interval: number      // 小时，0=关闭
-  onExit: boolean
-  keep: number          // 保留份数 3-30
-  effectiveDir: string
+/** 镜像备份设置（mirror.getSettings / setSettings） */
+export interface MirrorSettings {
+  dir: string           // 镜像目录；空 = 未配置（备份处于关闭状态）
+  enabled: boolean
 }
 
-export type BackupSettingsPatch = Partial<Pick<BackupSettings, 'dir' | 'interval' | 'onExit' | 'keep'>>
+export type MirrorSettingsPatch = Partial<MirrorSettings>
 
-/** 备份文件条目（backup.list，按 mtime 倒序） */
-export interface BackupItem {
-  file: string
-  path: string
-  type: 'snapshot' | 'auto' | 'manual'
-  mtime: number
-  size: number
+/** 镜像备份状态（mirror.status） */
+export interface MirrorStatus {
+  enabled: boolean
+  dir: string
+  lastSync: number | null   // 最近一次同步完成时间戳（ms）
+  dbSize: number
+  mediaCount: number
+  papersCount: number
+  totalSize: number
+  error: string | null
 }
 
-/** 备份 zip 校验结果（backup.validate / backup.pick 内嵌） */
-export type BackupValidateResult =
-  | { ok: true; entries: number; media: number }
+/** 镜像校验结果（mirror.verify） */
+export type MirrorVerifyResult =
+  | { ok: true; entries: number; media: number; files: number }
   | { ok: false; error: string }
 
 /** 导出预览（export.preview，轻量摘要） */

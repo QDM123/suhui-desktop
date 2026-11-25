@@ -68,61 +68,32 @@
         <button class="btn sm plain" @click="openDataDir">打开目录</button>
       </div>
       <div class="set-row">
-        <span>💾</span>
-        <span class="grow">备份<div class="s">数据库 + 全部照片打包为 zip；每日首次启动自动快照（保留最近 7 份）</div></span>
-        <button class="btn sm" :disabled="busy" @click="createBackup">立即备份</button>
-      </div>
-      <div class="set-row">
-        <span>♻️</span>
-        <span class="grow">从备份恢复<div class="s">选择备份 zip，覆盖当前全部数据后自动重启</div></span>
-        <button class="btn sm ghost" :disabled="busy" @click="pickBackup">选择备份…</button>
-      </div>
-      <div class="set-row">
         <span>📥</span>
         <span class="grow">从 Markdown 导入<div class="s">按「## 日期」分节的 md 文件，图片随相对路径一起导入；已导入过的内容自动跳过</div></span>
         <button class="btn sm ghost" :disabled="busy" @click="pickImport">选择文件…</button>
       </div>
     </div>
 
-    <!-- 自动备份 -->
-    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;letter-spacing:1px;">自动备份</div>
+    <!-- 备份 -->
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;letter-spacing:1px;">备份</div>
     <div class="set-group">
       <div class="set-row" style="cursor:pointer" @click="router.push('/backups')">
-        <span>🗂</span><span class="grow">备份管理<div class="s">查看 / 恢复 / 删除已有备份，最新一份始终受保护</div></span>
+        <span>🗂</span><span class="grow">备份管理<div class="s">查看同步状态 / 校验 / 从镜像恢复</div></span>
         <span style="color:var(--text-secondary)">›</span>
       </div>
       <div class="set-row">
         <span>📁</span>
-        <span class="grow">备份目录<div class="s">{{ bk.effectiveDir || '…' }}<template v-if="!bk.dir">（默认）</template></div></span>
+        <span class="grow">镜像目录<div class="s">{{ bk.dir || '未设置' }}</div></span>
         <button class="btn sm plain" @click="chooseBkDir">浏览</button>
-        <button v-if="bk.dir" class="btn sm plain" @click="resetBkDir">默认</button>
       </div>
       <div class="set-row">
-        <span>⏱</span>
-        <span class="grow">定时备份<div class="s">应用运行期间每隔 N 小时自动快照一次（静默完成）</div></span>
-        <select class="bk-select" :value="bk.interval" @change="setIntervalHours($event)">
-          <option :value="0">关闭</option>
-          <option :value="4">每 4 小时</option>
-          <option :value="6">每 6 小时</option>
-          <option :value="12">每 12 小时</option>
-        </select>
+        <span>🔄</span>
+        <span class="grow">自动镜像<div class="s">每次修改后约 2 秒同步一份最新副本到镜像目录（不产生压缩包）</div></span>
+        <span class="switch" :class="{ on: bk.enabled }" @click="toggleEnabled"></span>
       </div>
-      <div class="set-row">
-        <span>🚪</span>
-        <span class="grow">退出时备份<div class="s">每次关闭应用前自动留一份最新快照</div></span>
-        <span class="switch" :class="{ on: bk.onExit }" @click="toggleOnExit"></span>
-      </div>
-      <div class="set-row">
-        <span>🗂</span>
-        <span class="grow">保留份数<div class="s">自动备份滚动保留最近 N 份（3 ~ 30），超出自动清理最旧的</div></span>
-        <input
-          class="bk-num"
-          type="number"
-          min="3"
-          max="30"
-          :value="bk.keep"
-          @change="setKeep($event)"
-        >
+      <div v-if="!bk.enabled" class="set-row" style="cursor:default">
+        <span>⚠️</span>
+        <span class="grow" style="color:var(--text-secondary);font-size:12.5px;">备份未开启：请先选择镜像目录并打开开关；镜像目录建议放在另一块磁盘或云同步文件夹</span>
       </div>
     </div>
 
@@ -176,47 +147,33 @@ const reminder = reactive({ enabled: false, time: '21:00' })
 const autostart = ref(false)
 const busy = ref(false)
 
-/* 自动备份设置（定时 / 退出 / 目录 / 保留份数） */
-const bk = reactive({ dir: '', effectiveDir: '', interval: 6, onExit: true, keep: 7 })
+/* 镜像备份设置（目录 / 开关） */
+const bk = reactive({ dir: '', enabled: false })
 
 async function loadBk() {
-  const s = await window.api.backup.getSettings()
+  const s = await window.api.mirror.getSettings()
   Object.assign(bk, s)
 }
 
 async function chooseBkDir() {
-  const r = await window.api.backup.chooseDir()
+  const r = await window.api.mirror.chooseDir()
   if ('canceled' in r) return
-  await window.api.backup.setSettings({ dir: r.path })
+  const s = await window.api.mirror.setSettings({ dir: r.path, enabled: true })
+  if (!s.ok) { ui.showToast(s.error); return }
   await loadBk()
-  ui.showToast('自动备份将保存到：' + r.path)
+  ui.showToast('备份已开启，正在同步到：' + r.path)
 }
 
-async function resetBkDir() {
-  await window.api.backup.setSettings({ dir: '' })
+async function toggleEnabled() {
+  if (!bk.enabled && !bk.dir) {
+    await chooseBkDir()
+    return
+  }
+  const next = !bk.enabled
+  const s = await window.api.mirror.setSettings({ enabled: next })
+  if (!s.ok) { ui.showToast(s.error); return }
   await loadBk()
-  ui.showToast('已恢复默认备份目录')
-}
-
-async function setIntervalHours(e: Event) {
-  const v = (e.target as HTMLSelectElement).value
-  await window.api.backup.setSettings({ interval: Number(v) })
-  await loadBk()
-  ui.showToast(Number(v) ? `已改为每 ${v} 小时自动备份` : '已关闭定时备份')
-}
-
-async function toggleOnExit() {
-  await window.api.backup.setSettings({ onExit: !bk.onExit })
-  await loadBk()
-  ui.showToast(bk.onExit ? '退出时将自动备份' : '已关闭退出备份')
-}
-
-async function setKeep(e: Event) {
-  const v = (e.target as HTMLInputElement).value
-  const n = Math.min(30, Math.max(3, Number(v) || 7))
-  await window.api.backup.setSettings({ keep: n })
-  await loadBk()
-  ui.showToast(`自动备份保留最近 ${n} 份`)
+  ui.showToast(next ? '已开启自动镜像' : '已关闭自动镜像')
 }
 
 async function loadAutostart() {
@@ -258,47 +215,6 @@ async function setReminderTime(e: Event) {
   reminder.time = t
   const r = await window.api.reminder.set({ enabled: reminder.enabled, time: t })
   if (r.ok) ui.showToast('提醒时间已设为 ' + t)
-}
-
-async function createBackup() {
-  if (busy.value) return
-  busy.value = true
-  ui.showToast('正在备份…')
-  try {
-    const r: { canceled?: boolean; ok?: boolean; path?: string; error?: string } = await window.api.backup.create()
-    if (r.canceled) ui.showToast('已取消')
-    else if (r.ok && r.path) ui.showToast('备份完成：' + r.path.split(/[\\/]/).pop())
-    else ui.showToast(r.error || '备份失败')
-  } catch (e) {
-    ui.showToast('备份失败：' + String((e as { message?: string } | null)?.message || e))
-  } finally {
-    busy.value = false
-  }
-}
-
-async function pickBackup() {
-  if (busy.value) return
-  busy.value = true
-  try {
-    const r = await window.api.backup.pick()
-    if ('canceled' in r) return
-    if (!r.ok) {
-      ui.askConfirm({ title: '备份无效', body: r.error, cancelText: '关闭' })
-      return
-    }
-    const okAsk = await ui.askConfirm({
-      title: '恢复备份',
-      body: `该备份包含 ${r.entries} 篇日记、${r.media} 条照片记录。\n\n恢复将覆盖当前全部数据，确定吗？`,
-      confirmText: '恢复',
-      danger: true
-    })
-    if (!okAsk) return
-    ui.showToast('正在恢复，应用即将重启…')
-    await new Promise((res) => setTimeout(res, 600))
-    await window.api.backup.restore(r.path)
-  } finally {
-    busy.value = false
-  }
 }
 
 async function pickImport() {
@@ -352,15 +268,4 @@ onMounted(async () => {
   border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12.5px;
   background:var(--card);color:var(--text-main);outline:none;
 }
-/* 自动备份控件 */
-.bk-select{
-  border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12.5px;
-  background:var(--card);color:var(--text-main);outline:none;flex:none;
-}
-.bk-select:focus{border-color:var(--accent);}
-.bk-num{
-  border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12.5px;width:64px;
-  background:var(--card);color:var(--text-main);outline:none;flex:none;text-align:center;
-}
-.bk-num:focus{border-color:var(--accent);}
 </style>

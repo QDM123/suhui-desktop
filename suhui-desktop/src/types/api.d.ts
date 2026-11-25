@@ -7,11 +7,11 @@
    （主进程 dao 抛错直传渲染层）。
    ============================================================ */
 import type {
-  AlbumMediaItem, AutostartState, BackupItem, BackupSettings,
-  BackupSettingsPatch, BackupValidateResult, BinItem, CategoryPatch,
+  AlbumMediaItem, AutostartState, BinItem, CategoryPatch,
   CategoryRow, CategoryWithCount, DiaryStats, DraftInit, EntryDetail,
   EntryPatch, ExportFileRow, ExportOptions, ExportPreview, ExportRunResult,
-  ExportType, ImportPickResult, ImportRunResult, MediaRow, Paper,
+  ExportType, ImportPickResult, ImportRunResult, MediaRow, MirrorSettings,
+  MirrorSettingsPatch, MirrorStatus, MirrorVerifyResult, Paper,
   PaperGenConfig, PaperGenInput, RangeEntry, ReminderState, SysInfo,
   TagRef, TagWithUsed, TimelineEntry, TodayItem
 } from './domain'
@@ -53,18 +53,16 @@ export interface SuhuiApi {
     set(opts: ReminderState): Promise<{ ok: true } | { ok: false; error: string }>
   }
 
-  backup: {
-    create(): Promise<{ canceled: true } | { ok: true; path: string; size: number }>
-    pick(): Promise<{ canceled: true } | ({ path: string } & BackupValidateResult)>
-    /** 恢复后应用自动重启，正常情况下本 Promise 不会 resolve */
-    restore(zipPath: string): Promise<true>
-    getSettings(): Promise<BackupSettings>
-    setSettings(patch: BackupSettingsPatch): Promise<{ ok: true } | { ok: false; error: string }>
+  mirror: {
+    getSettings(): Promise<MirrorSettings>
+    setSettings(patch: MirrorSettingsPatch): Promise<{ ok: true } | { ok: false; error: string }>
     chooseDir(): Promise<{ canceled: true } | { path: string }>
-    list(): Promise<BackupItem[]>
-    createNow(): Promise<{ ok: true; file: string; size: number } | { ok: false; error: string }>
-    delete(file: string): Promise<{ ok: true } | { ok: false; error: string }>
-    validate(zipPath: string): Promise<BackupValidateResult>
+    status(): Promise<MirrorStatus>
+    syncNow(): Promise<{ ok: true } | { ok: false; error: string }>
+    verify(): Promise<MirrorVerifyResult>
+    /** 恢复后应用自动重启，正常情况下本 Promise 不会 resolve */
+    restore(): Promise<true>
+    openDir(): Promise<true>
   }
 
   diary: {

@@ -41,17 +41,15 @@ const api = {
     get: () => ipcRenderer.invoke('reminder:get'),
     set: (opts) => ipcRenderer.invoke('reminder:set', opts)
   },
-  backup: {
-    create: () => ipcRenderer.invoke('backup:create'),
-    pick: () => ipcRenderer.invoke('backup:pick'),
-    restore: (zipPath) => ipcRenderer.invoke('backup:restore', zipPath),
-    getSettings: () => ipcRenderer.invoke('backup:get-settings'),
-    setSettings: (patch) => ipcRenderer.invoke('backup:set-settings', patch),
-    chooseDir: () => ipcRenderer.invoke('backup:choose-dir'),
-    list: () => ipcRenderer.invoke('backup:list'),
-    createNow: () => ipcRenderer.invoke('backup:create-now'),
-    delete: (file) => ipcRenderer.invoke('backup:delete', file),
-    validate: (zipPath) => ipcRenderer.invoke('backup:validate', zipPath)
+  mirror: {
+    getSettings: () => ipcRenderer.invoke('mirror:get-settings'),
+    setSettings: (patch) => ipcRenderer.invoke('mirror:set-settings', patch),
+    chooseDir: () => ipcRenderer.invoke('mirror:choose-dir'),
+    status: () => ipcRenderer.invoke('mirror:status'),
+    syncNow: () => ipcRenderer.invoke('mirror:sync-now'),
+    verify: () => ipcRenderer.invoke('mirror:verify'),
+    restore: () => ipcRenderer.invoke('mirror:restore'),
+    openDir: () => ipcRenderer.invoke('mirror:open-dir')
   },
   diary: {
     ensureDraft: (init) => ipcRenderer.invoke('diary:ensure-draft', init),

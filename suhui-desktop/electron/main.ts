@@ -10,7 +10,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { initDb, getDb, getDao, paths } from './db'
 import { exportPdf, exportWord, exportHtml, exportLongImage, notifyDone } from './exporter'
-import { createBackupZip, dailySnapshot, validateBackup, doRestore, autoBackup, listBackups, backupNow, deleteBackup } from './backup'
+import {
+  checkMirrorDir, configureMirror, getMirrorSettings, mirrorStatus,
+  syncMirrorNow, flushMirror, validateMirror, restoreFromMirror
+} from './mirror'
 import { importPick, importRun } from './importer'
 import type { MediaRow } from '../src/types/domain'
 
@@ -96,12 +99,8 @@ app.whenReady().then(() => {
   const { purged } = getDao().cleanupExpired()
   if (purged > 0) console.log(`[回收站] 已自动清理超过 30 天的日记 ${purged} 篇`)
 
-  /* 每日首次启动自动快照（Phase 8，计划 §2.3 最后防线） */
-  dailySnapshot()
-
-  /* 自动备份：读取设置并启动定时器（Phase 9） */
-  loadBackupSettings()
-  scheduleAutoBackup()
+  /* 镜像备份：读取设置并启动变化监测（未开启时什么也不做） */
+  loadMirrorSettings()
 
   /* 提醒写日记：本地定时检查（Phase 8；应用未运行不提醒——托盘常驻为储备） */
   startReminderScheduler()
@@ -161,19 +160,17 @@ ipcMain.on('win:toggle-maximize', () => {
 })
 ipcMain.on('win:close', () => mainWindow?.close())
 
-/* 关窗守卫握手（退出时自动备份：flush 后、关窗前落一份快照）
-   幂等：握手期间的重复 confirm-close 直接忽略，确保退出备份只跑一次 */
+/* 关窗守卫握手（退出前把防抖等待中的镜像变更落盘）
+   幂等：握手期间的重复 confirm-close 直接忽略，确保落盘只跑一次 */
 ipcMain.on('app:confirm-close', async () => {
   if (closeHandshaking) return
   closeHandshaking = true
   closeConfirmed = true
-  if (BACKUP.onExit) {
-    try {
-      await autoBackup(BACKUP.effectiveDir(), BACKUP.keep)
-      console.log('[备份] 退出时备份完成')
-    } catch (e) {
-      console.warn('[备份] 退出时备份失败：', (e as { message?: string })?.message || e)
-    }
+  try {
+    await flushMirror()
+    console.log('[镜像备份] 退出前同步完成')
+  } catch (e) {
+    console.warn('[镜像备份] 退出前同步失败：', (e as { message?: string })?.message || e)
   }
   closeHandshaking = false /* 先解除握手占用，让下面的 close 通过守卫 */
   mainWindow?.close()
@@ -472,147 +469,68 @@ ipcMain.handle('reminder:set', async (_e, { enabled, time }) => {
   return { ok: true }
 })
 
-/* ---------- 自动备份设置（定时 / 退出 / 目录 / 保留份数，Phase 9 追加） ---------- */
+/* ---------- 镜像备份（目录 / 开关 / 状态 / 同步 / 校验 / 恢复） ---------- */
 
-interface BackupConfig {
-  dir: string            // 自定义备份目录；空 = 应用数据目录 backups/
-  interval: number       // 运行中定时备份间隔（小时），0 = 关闭
-  onExit: boolean        // 退出时自动备份
-  keep: number           // 自动备份保留份数
-  timer: NodeJS.Timeout | null
-  effectiveDir(): string
+function loadMirrorSettings(): void {
+  /* 兼容旧配置：镜像目录未配置时沿用旧的备份目录，但不自动开启 */
+  const dir = getSetting('mirror.dir', getSetting('backup.dir', '') || '') || ''
+  const enabled = getSetting('mirror.enabled', '0') === '1' && !!dir
+  configureMirror(dir, enabled)
+  if (enabled) void syncMirrorNow()
 }
 
-const BACKUP: BackupConfig = {
-  dir: '',
-  interval: 6,
-  onExit: true,
-  keep: 7,
-  timer: null,
-  effectiveDir() {
-    if (this.dir && fs.existsSync(this.dir)) return this.dir
-    return path.join(paths.dataDir(), 'backups')
-  }
-}
+ipcMain.handle('mirror:get-settings', () => getMirrorSettings())
 
-function loadBackupSettings(): void {
-  BACKUP.dir = getSetting('backup.dir', '') || ''
-  BACKUP.interval = Math.max(0, Number(getSetting('backup.interval', '6')) || 0)
-  BACKUP.onExit = getSetting('backup.on_exit', '1') === '1'
-  BACKUP.keep = Math.min(30, Math.max(3, Number(getSetting('backup.keep', '7')) || 7))
-}
+ipcMain.handle('mirror:set-settings', (_e, patch) => {
+  const cur = getMirrorSettings()
+  let nextDir = cur.dir
+  let nextEnabled = cur.enabled
 
-function scheduleAutoBackup(): void {
-  if (BACKUP.timer) { clearInterval(BACKUP.timer); BACKUP.timer = null }
-  if (!BACKUP.interval) return
-  BACKUP.timer = setInterval(async () => {
-    try {
-      const r = await autoBackup(BACKUP.effectiveDir(), BACKUP.keep)
-      console.log(`[备份] 定时备份完成：${r.file}`)
-    } catch (e) {
-      console.warn('[备份] 定时备份失败：', (e as { message?: string })?.message || e)
-    }
-  }, BACKUP.interval * 3600 * 1000)
-}
-
-ipcMain.handle('backup:get-settings', () => ({
-  dir: BACKUP.dir,
-  interval: BACKUP.interval,
-  onExit: BACKUP.onExit,
-  keep: BACKUP.keep,
-  effectiveDir: BACKUP.effectiveDir()
-}))
-
-ipcMain.handle('backup:set-settings', (_e, patch) => {
   if ('dir' in patch) {
     const d = String(patch.dir || '')
-    if (d && !fs.existsSync(d)) return { ok: false, error: '目录不存在' }
-    BACKUP.dir = d
-    setSetting('backup.dir', d)
+    const bad = checkMirrorDir(d)
+    if (bad) return { ok: false, error: bad }
+    nextDir = d
+    if (!d) nextEnabled = false /* 清空目录 = 关闭备份 */
+    setSetting('mirror.dir', d)
   }
-  if ('interval' in patch) {
-    BACKUP.interval = [0, 4, 6, 12].includes(Number(patch.interval)) ? Number(patch.interval) : 6
-    setSetting('backup.interval', String(BACKUP.interval))
+  if ('enabled' in patch) {
+    nextEnabled = !!patch.enabled && !!nextDir
+    setSetting('mirror.enabled', nextEnabled ? '1' : '0')
   }
-  if ('onExit' in patch) {
-    BACKUP.onExit = !!patch.onExit
-    setSetting('backup.on_exit', BACKUP.onExit ? '1' : '0')
-  }
-  if ('keep' in patch) {
-    BACKUP.keep = Math.min(30, Math.max(3, Number(patch.keep) || 7))
-    setSetting('backup.keep', String(BACKUP.keep))
-  }
-  scheduleAutoBackup()
+  configureMirror(nextDir, nextEnabled)
+  if (nextEnabled) void syncMirrorNow()
   return { ok: true }
 })
 
-ipcMain.handle('backup:choose-dir', async () => {
+ipcMain.handle('mirror:choose-dir', async () => {
   const r = await dialog.showOpenDialog(mainWindow!, {
-    title: '选择自动备份目录',
+    title: '选择镜像备份目录（建议另一块磁盘或云同步文件夹）',
     properties: ['openDirectory', 'createDirectory']
   })
   if (r.canceled || !r.filePaths.length) return { canceled: true }
   return { path: r.filePaths[0] }
 })
 
-/* ---------- 备份 / 恢复（Phase 8） ---------- */
+ipcMain.handle('mirror:status', () => mirrorStatus())
 
-ipcMain.handle('backup:create', async () => {
-  const d = new Date()
-  const p = (n: number) => String(n).padStart(2, '0')
-  const name = `suhui-backup-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.zip`
-  const r = await dialog.showSaveDialog(mainWindow!, {
-    title: '备份到哪里',
-    defaultPath: path.join(app.getPath('documents'), name),
-    filters: [{ name: 'ZIP 备份', extensions: ['zip'] }]
-  })
-  if (r.canceled || !r.filePath) return { canceled: true }
-  const size = await createBackupZip(r.filePath)
-  return { ok: true, path: r.filePath, size }
+ipcMain.handle('mirror:sync-now', () => syncMirrorNow())
+
+ipcMain.handle('mirror:verify', () => {
+  try { return validateMirror() } catch (e) { return { ok: false, error: String((e as { message?: string })?.message || e) } }
 })
 
-ipcMain.handle('backup:pick', async () => {
-  const r = await dialog.showOpenDialog(mainWindow!, {
-    title: '选择备份文件',
-    properties: ['openFile'],
-    filters: [{ name: 'ZIP 备份', extensions: ['zip'] }]
-  })
-  if (r.canceled || !r.filePaths.length) return { canceled: true }
-  const v = validateBackup(r.filePaths[0])
-  return { path: r.filePaths[0], ...v }
-})
-
-ipcMain.handle('backup:restore', (_e, zipPath) => {
-  doRestore(zipPath)
+ipcMain.handle('mirror:restore', () => {
+  restoreFromMirror()
   app.relaunch()
   app.exit(0)
   return true
 })
 
-/* ---------- 备份管理中心（Phase 9）：列表 / 立即备份 / 删除 / 校验 ---------- */
-
-ipcMain.handle('backup:list', () => listBackups(BACKUP.effectiveDir()))
-
-ipcMain.handle('backup:create-now', async () => {
-  try {
-    const r = await backupNow(BACKUP.effectiveDir())
-    return { ok: true, ...r }
-  } catch (e) {
-    return { ok: false, error: String((e as { message?: string })?.message || e) }
-  }
-})
-
-/* 删除按文件名定位（拼入备份目录），不接受任意路径 */
-ipcMain.handle('backup:delete', (_e, file) => {
-  try {
-    return deleteBackup(BACKUP.effectiveDir(), String(file || ''))
-  } catch (e) {
-    return { ok: false, error: String((e as { message?: string })?.message || e) }
-  }
-})
-
-ipcMain.handle('backup:validate', (_e, zipPath) => {
-  try { return validateBackup(zipPath) } catch (e) { return { ok: false, error: String((e as { message?: string })?.message || e) } }
+ipcMain.handle('mirror:open-dir', () => {
+  const { dir } = getMirrorSettings()
+  if (dir) shell.openPath(dir)
+  return true
 })
 
 /* ---------- Markdown 导入（两段式：先解析摘要，确认后写入） ---------- */
